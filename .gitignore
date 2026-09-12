@@ -1,0 +1,24 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+.DS_Store
+*.log
+.env
+.vscode/
+.idea/
+*.db-journal
+

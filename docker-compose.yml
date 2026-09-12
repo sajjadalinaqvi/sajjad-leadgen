@@ -1,0 +1,27 @@
+services:
+  backend:
+    build: ./backend
+    container_name: scraper-backend
+    ports:
+      - "8005:8005"
+    volumes:
+      - browser-profile:/root/.scraper_browser_profile
+      - playwright-cache:/root/.cache/ms-playwright
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    shm_size: "2gb"
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: scraper-frontend
+    ports:
+      - "3005:3005"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  browser-profile:
+  playwright-cache:
