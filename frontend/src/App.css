@@ -1,7 +1,7 @@
 /* ==========================================================================
    ApexLead AI — Studio Stylesheet
    ========================================================================== */
-
+/* aiohfkljaf */
 /* Layout & Containers */
 .page-wrapper {
   min-height: 100vh;
@@ -550,7 +550,8 @@
   align-items: center;
 }
 
-.custom-input, .custom-select {
+.custom-input,
+.custom-select {
   width: 100%;
   padding: 12px 14px 12px 42px;
   font-size: 14px;
@@ -693,11 +694,11 @@
   transition: transform var(--transition-fast);
 }
 
-.toggle-checkbox:checked + .toggle-slider {
+.toggle-checkbox:checked+.toggle-slider {
   background: var(--emerald);
 }
 
-.toggle-checkbox:checked + .toggle-slider::before {
+.toggle-checkbox:checked+.toggle-slider::before {
   transform: translateX(18px);
 }
 
@@ -790,11 +791,25 @@
   flex-shrink: 0;
 }
 
-.stat-primary { background: rgba(99, 102, 241, 0.15); }
-.stat-emerald { background: rgba(16, 185, 129, 0.15); }
-.stat-cyan { background: rgba(6, 182, 212, 0.15); }
-.stat-amber { background: rgba(245, 158, 11, 0.15); }
-.stat-purple { background: rgba(168, 85, 247, 0.15); }
+.stat-primary {
+  background: rgba(99, 102, 241, 0.15);
+}
+
+.stat-emerald {
+  background: rgba(16, 185, 129, 0.15);
+}
+
+.stat-cyan {
+  background: rgba(6, 182, 212, 0.15);
+}
+
+.stat-amber {
+  background: rgba(245, 158, 11, 0.15);
+}
+
+.stat-purple {
+  background: rgba(168, 85, 247, 0.15);
+}
 
 .stat-details {
   flex: 1;
@@ -830,11 +845,30 @@
   border-radius: var(--radius-full);
 }
 
-.stat-badge-indigo { background: var(--primary-glow); color: #818cf8; }
-.stat-badge-emerald { background: var(--emerald-bg); color: var(--emerald); }
-.stat-badge-cyan { background: var(--cyan-glow); color: var(--cyan); }
-.stat-badge-amber { background: var(--amber-bg); color: var(--amber); }
-.stat-badge-purple { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+.stat-badge-indigo {
+  background: var(--primary-glow);
+  color: #818cf8;
+}
+
+.stat-badge-emerald {
+  background: var(--emerald-bg);
+  color: var(--emerald);
+}
+
+.stat-badge-cyan {
+  background: var(--cyan-glow);
+  color: var(--cyan);
+}
+
+.stat-badge-amber {
+  background: var(--amber-bg);
+  color: var(--amber);
+}
+
+.stat-badge-purple {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+}
 
 .stat-progress-bar {
   width: 100%;
@@ -851,11 +885,25 @@
   transition: width 0.6s ease-out;
 }
 
-.stat-progress-indigo { background: var(--primary); }
-.stat-progress-emerald { background: var(--emerald); }
-.stat-progress-cyan { background: var(--cyan); }
-.stat-progress-amber { background: var(--amber); }
-.stat-progress-purple { background: #a855f7; }
+.stat-progress-indigo {
+  background: var(--primary);
+}
+
+.stat-progress-emerald {
+  background: var(--emerald);
+}
+
+.stat-progress-cyan {
+  background: var(--cyan);
+}
+
+.stat-progress-amber {
+  background: var(--amber);
+}
+
+.stat-progress-purple {
+  background: #a855f7;
+}
 
 /* ==========================================================================
    Export & Action Toolbar
@@ -932,9 +980,20 @@
   color: #ffffff;
 }
 
-.btn-csv:hover { background: rgba(16, 185, 129, 0.2); border-color: rgba(16, 185, 129, 0.4); }
-.btn-excel:hover { background: rgba(14, 165, 233, 0.2); border-color: rgba(14, 165, 233, 0.4); }
-.btn-json:hover { background: rgba(245, 158, 11, 0.2); border-color: rgba(245, 158, 11, 0.4); }
+.btn-csv:hover {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+.btn-excel:hover {
+  background: rgba(14, 165, 233, 0.2);
+  border-color: rgba(14, 165, 233, 0.4);
+}
+
+.btn-json:hover {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: rgba(245, 158, 11, 0.4);
+}
 
 /* ==========================================================================
    Results Table & Lead Cards
@@ -1581,9 +1640,18 @@
   height: 10px;
   border-radius: 50%;
 }
-.dot-red { background: #ef4444; }
-.dot-yellow { background: #f59e0b; }
-.dot-green { background: #10b981; }
+
+.dot-red {
+  background: #ef4444;
+}
+
+.dot-yellow {
+  background: #f59e0b;
+}
+
+.dot-green {
+  background: #10b981;
+}
 
 .terminal-title {
   font-family: var(--font-mono);
@@ -1852,11 +1920,25 @@
 }
 
 /* Utility Helpers */
-.mb-4 { margin-bottom: 16px; }
-.mt-2 { margin-top: 8px; }
-.w-full { width: 100%; }
-.font-semibold { font-weight: 600; }
-.ml-auto { margin-left: auto; }
+.mb-4 {
+  margin-bottom: 16px;
+}
+
+.mt-2 {
+  margin-top: 8px;
+}
+
+.w-full {
+  width: 100%;
+}
+
+.font-semibold {
+  font-weight: 600;
+}
+
+.ml-auto {
+  margin-left: auto;
+}
 
 /* ==========================================================================
    Overseas Pakistani Investor Intelligence Styles
@@ -2057,9 +2139,23 @@
   letter-spacing: 0.02em;
 }
 
-.tier-hot { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.35); }
-.tier-high { background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.35); }
-.tier-potential { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.35); }
+.tier-hot {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.tier-high {
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+}
+
+.tier-potential {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
 
 .score-factors-grid {
   display: grid;
@@ -2146,13 +2242,41 @@
   margin-left: auto;
 }
 
-.stage-new { background: rgba(99, 102, 241, 0.15); color: #818cf8; }
-.stage-reviewed { background: rgba(6, 182, 212, 0.15); color: #22d3ee; }
-.stage-qualified { background: rgba(16, 185, 129, 0.15); color: #10b981; }
-.stage-contacted { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
-.stage-meeting { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
-.stage-converted { background: rgba(16, 185, 129, 0.25); color: #34d399; font-weight: 800; }
-.stage-do-not-contact { background: rgba(244, 63, 94, 0.2); color: #f43f5e; }
+.stage-new {
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+}
+
+.stage-reviewed {
+  background: rgba(6, 182, 212, 0.15);
+  color: #22d3ee;
+}
+
+.stage-qualified {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.stage-contacted {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.stage-meeting {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+}
+
+.stage-converted {
+  background: rgba(16, 185, 129, 0.25);
+  color: #34d399;
+  font-weight: 800;
+}
+
+.stage-do-not-contact {
+  background: rgba(244, 63, 94, 0.2);
+  color: #f43f5e;
+}
 
 .card-accordion-toggle {
   display: flex;
@@ -2457,6 +2581,7 @@
   margin-left: auto;
   box-shadow: 0 0 8px #10b981;
 }
+
 /* ==========================================================================
    Responsive Views & Mobile Card Architecture
    ========================================================================== */
@@ -2680,15 +2805,19 @@
   .navbar-nav {
     display: none;
   }
+
   .desktop-only-nav {
     display: none !important;
   }
+
   .mobile-menu-toggle {
     display: flex;
   }
+
   .tools-showcase-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+
   .highlights-grid {
     grid-template-columns: 1fr;
   }
@@ -2696,7 +2825,8 @@
 
 @media (max-width: 768px) {
   .main-content-container {
-    padding: 16px 12px 115px; /* Extra bottom padding for mobile navigation dock + safe area */
+    padding: 16px 12px 115px;
+    /* Extra bottom padding for mobile navigation dock + safe area */
     gap: 16px;
   }
 
@@ -2838,7 +2968,9 @@
     gap: 8px;
   }
 
-  .contact-pill-item, .contact-pill-link, .btn-find-google-email {
+  .contact-pill-item,
+  .contact-pill-link,
+  .btn-find-google-email {
     width: 100%;
     justify-content: space-between;
     padding: 8px 12px;
@@ -2862,7 +2994,9 @@
     gap: 8px;
   }
 
-  .btn-review-dnc, .btn-review-reject, .btn-review-approve {
+  .btn-review-dnc,
+  .btn-review-reject,
+  .btn-review-approve {
     width: 100%;
     justify-content: center;
     padding: 12px 16px;
@@ -2891,7 +3025,8 @@
     gap: 12px;
   }
 
-  .table-search-input-wrap, .table-search-input {
+  .table-search-input-wrap,
+  .table-search-input {
     width: 100% !important;
   }
 
@@ -2964,22 +3099,25 @@
   .score-factors-grid {
     grid-template-columns: 1fr;
   }
+
   .stats-grid {
     grid-template-columns: 1fr;
   }
+
   .hero-main-title {
     font-size: 24px;
   }
+
   .mobile-bottom-dock {
     padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
   }
+
   .bottom-dock-item {
     min-width: 50px;
     padding: 4px 4px;
   }
+
   .bottom-dock-label {
     font-size: 10px;
   }
 }
-
-
