@@ -695,14 +695,28 @@ export default function OverseasLeadsPage() {
 
                         {/* Direct Phone Call Button */}
                         {lead.public_phone && (
-                          <a
-                            href={`tel:${lead.public_phone}`}
-                            className="btn-call-direct"
-                            title="Call direct phone"
-                          >
-                            <PhoneIcon size={14} color="#fbbf24" />
-                            <span>{lead.public_phone}</span>
-                          </a>
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                            <a
+                              href={`tel:${lead.public_phone}`}
+                              className="btn-call-direct"
+                              title="Call direct phone"
+                            >
+                              <PhoneIcon size={14} color="#fbbf24" />
+                              <span>{lead.public_phone}</span>
+                            </a>
+                            {lead.phone_source_url && (
+                              <a
+                                href={lead.phone_source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="source-link-pill"
+                                title={`Verify public source of this phone number: ${lead.phone_source_url}`}
+                              >
+                                <ExternalLinkIcon size={10} color="#38bdf8" />
+                                <span>Source 🔗</span>
+                              </a>
+                            )}
+                          </div>
                         )}
 
                         {/* Copy Phone Button */}
@@ -781,17 +795,31 @@ export default function OverseasLeadsPage() {
 
                       {/* Public Email Pill */}
                       {lead.public_email && (
-                        <button
-                          type="button"
-                          className="contact-pill email-pill"
-                          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 20, background: "rgba(16, 185, 129, 0.12)", border: "1px solid rgba(16, 185, 129, 0.3)", color: "#34d399", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
-                          onClick={() => copyToClipboard(lead.public_email, `${leadKey}-email`, "Email")}
-                          title="Click to copy public email"
-                        >
-                          <MailIcon size={13} color="#10b981" />
-                          <span>{lead.public_email}</span>
-                          {copiedKey === `${leadKey}-email` ? <CheckIcon size={12} color="#10b981" /> : <CopyIcon size={12} />}
-                        </button>
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                          <button
+                            type="button"
+                            className="contact-pill email-pill"
+                            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 20, background: "rgba(16, 185, 129, 0.12)", border: "1px solid rgba(16, 185, 129, 0.3)", color: "#34d399", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                            onClick={() => copyToClipboard(lead.public_email, `${leadKey}-email`, "Email")}
+                            title="Click to copy public email"
+                          >
+                            <MailIcon size={13} color="#10b981" />
+                            <span>{lead.public_email}</span>
+                            {copiedKey === `${leadKey}-email` ? <CheckIcon size={12} color="#10b981" /> : <CopyIcon size={12} />}
+                          </button>
+                          {lead.email_source_url && (
+                            <a
+                              href={lead.email_source_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="source-link-pill"
+                              title={`Verify public source of this email: ${lead.email_source_url}`}
+                            >
+                              <ExternalLinkIcon size={10} color="#38bdf8" />
+                              <span>Source 🔗</span>
+                            </a>
+                          )}
+                        </div>
                       )}
 
                       {/* Expand Evidence Button */}
@@ -819,6 +847,44 @@ export default function OverseasLeadsPage() {
                         <p style={{ color: "#cbd5e1", fontSize: 13, lineHeight: 1.6, margin: "8px 0" }}>
                           {lead.notes || lead.evidence_summary}
                         </p>
+
+                        {/* Documented Public Sources & Proof */}
+                        {((lead.source_urls && lead.source_urls.length > 0) || lead.phone_source_url || lead.email_source_url) && (
+                          <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255, 255, 255, 0.07)" }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: "#38bdf8", textTransform: "uppercase", letterSpacing: "0.04em", display: "block", marginBottom: 6 }}>
+                              🔗 Public Finding Sources &amp; Citations:
+                            </span>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                              {lead.phone_source_url && (
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "rgba(255, 255, 255, 0.03)", padding: "4px 10px", borderRadius: 6 }}>
+                                  <span style={{ fontSize: 12, color: "#fbbf24", fontWeight: 600 }}>Phone / WhatsApp Source:</span>
+                                  <a href={lead.phone_source_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#38bdf8", textDecoration: "underline", maxWidth: 380, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    {lead.phone_source_url}
+                                  </a>
+                                </div>
+                              )}
+                              {lead.email_source_url && (
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "rgba(255, 255, 255, 0.03)", padding: "4px 10px", borderRadius: 6 }}>
+                                  <span style={{ fontSize: 12, color: "#34d399", fontWeight: 600 }}>Email Contact Source:</span>
+                                  <a href={lead.email_source_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#38bdf8", textDecoration: "underline", maxWidth: 380, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    {lead.email_source_url}
+                                  </a>
+                                </div>
+                              )}
+                              {(lead.source_urls || []).map((srcUrl, sIdx) => {
+                                if (!srcUrl || srcUrl === lead.phone_source_url || srcUrl === lead.email_source_url) return null;
+                                return (
+                                  <div key={sIdx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "rgba(255, 255, 255, 0.03)", padding: "4px 10px", borderRadius: 6 }}>
+                                    <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 500 }}>Public Record / Profile:</span>
+                                    <a href={srcUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#38bdf8", textDecoration: "underline", maxWidth: 380, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      {srcUrl}
+                                    </a>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 

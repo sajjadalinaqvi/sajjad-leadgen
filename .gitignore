@@ -20,5 +20,9 @@ frontend/dist/
 .env
 .vscode/
 .idea/
+# Database & Temp Files
+*.db
+*.sqlite3
 *.db-journal
-
+test_*.py
+seed_*.py

@@ -30,6 +30,7 @@ from exporter import (
     export_dork_csv, export_dork_json, export_dork_excel,
     export_overseas_csv, export_overseas_excel, export_overseas_json
 )
+from enrichment import deep_enrich_person, dork_contact_search
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -227,6 +228,44 @@ async def delete_lead(lead_id: str):
     if not success:
         raise HTTPException(status_code=404, detail="Lead not found or already deleted")
     return {"status": "ok", "deleted_id": lead_id}
+
+
+@app.post("/leads/enrich-candidate")
+async def enrich_candidate_contacts(candidate: dict):
+    """
+    Executes deep OSINT search dorks to discover personal/direct phone numbers,
+    WhatsApp contacts, public emails, and company websites for a candidate.
+    """
+    try:
+        enriched = await deep_enrich_person(candidate)
+        return {"status": "ok", "candidate": enriched}
+    except Exception as e:
+        log.error("Enrich candidate failed: %s", traceback.format_exc())
+        return {"status": "error", "error": str(e), "candidate": candidate}
+
+
+@app.post("/leads/{lead_id}/enrich")
+async def enrich_stored_lead(lead_id: str):
+    """
+    Runs deep OSINT contact dorking for an existing lead in the database,
+    updating their phone, email, and social links.
+    """
+    lead = get_lead_by_id(lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    try:
+        enriched = await deep_enrich_person(lead)
+        # Update lead in database
+        insert_lead_dict(enriched)
+        log_audit_event(lead_id, "contact_enriched", {
+            "phone": enriched.get("public_phone"),
+            "email": enriched.get("public_email")
+        })
+        return {"status": "ok", "lead": enriched}
+    except Exception as e:
+        log.error("Enrich stored lead failed: %s", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Enrichment failed: {str(e)}")
 
 
 @app.get("/crm/funnel")

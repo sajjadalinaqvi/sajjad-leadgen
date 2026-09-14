@@ -16,7 +16,9 @@ PAK_UNIVERSITIES = [
     r"quaid-e-azam university", r"qau",
     r"king edward", r"kemu",
     r"rawalpindi medical", r"allama iqbal medical",
-    r"dow university", r"duhs", r"army medical college"
+    r"dow university", r"duhs", r"army medical college",
+    r"szabist", r"shaheed zulfikar ali bhutto",
+    r"comsats", r"pieas", r"bahria university", r"air university"
 ]
 
 # Known Pakistani Diaspora & Business Organizations
@@ -43,21 +45,26 @@ ISLAMABAD_LOCATIONS = [
 # High-Seniority Financial / Professional Roles
 FOUNDER_ROLES = [
     r"founder", r"co-founder", r"ceo", r"chief executive", r"managing director",
-    r"owner", r"president", r"group chairman", r"equity partner", r"principal"
+    r"owner", r"president", r"group chairman", r"equity partner", r"principal",
+    r"proprietor", r"chairman", r"co-owner", r"promoter", r"developer"
 ]
 MEDICAL_ROLES = [
     r"doctor", r"consultant surgeon", r"orthopedic surgeon", r"cardiologist",
-    r"physician", r"dentist", r"medical director", r"radiologist", r"frcs", r"facp"
+    r"physician", r"dentist", r"medical director", r"radiologist", r"frcs", r"facp",
+    r"chief medical officer", r"surgeon", r"dermatologist", r"neurosurgeon", r"pediatric surgeon"
 ]
 EXEC_ROLES = [
     r"vice president", r"\bvp\b", r"director", r"head of", r"chief technology",
     r"chief financial", r"general counsel", r"partner", r"corporate lawyer",
-    r"portfolio manager", r"managing partner", r"executive director"
+    r"portfolio manager", r"managing partner", r"executive director",
+    r"chartered accountant", r"\bfca\b", r"\bicaew\b", r"\bicap\b", r"\bcpa\b",
+    r"project director", r"senior vice president", r"\bsvp\b", r"chief product officer",
+    r"operating partner", r"financial controller", r"arbitrator", r"real estate developer"
 ]
 
 # Target Countries
-TIER_1_COUNTRIES = ["uae", "united arab emirates", "dubai", "abu dhabi", "saudi arabia", "ksa", "riyadh", "jeddah", "united kingdom", "uk", "london", "united states", "usa", "us"]
-TIER_2_COUNTRIES = ["canada", "australia", "qatar", "kuwait", "oman", "bahrain"]
+TIER_1_COUNTRIES = ["uae", "united arab emirates", "dubai", "abu dhabi", "saudi arabia", "ksa", "riyadh", "jeddah", "dhahran", "united kingdom", "uk", "london", "manchester", "united states", "usa", "us", "texas", "dallas", "houston", "california", "new york"]
+TIER_2_COUNTRIES = ["canada", "toronto", "australia", "sydney", "melbourne", "qatar", "doha", "kuwait", "oman", "muscat", "bahrain", "manama"]
 
 
 def calculate_lead_score(lead_data: Dict[str, Any]) -> ScoringBreakdown:

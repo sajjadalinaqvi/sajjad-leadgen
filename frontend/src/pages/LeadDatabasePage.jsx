@@ -639,6 +639,20 @@ export default function LeadDatabasePage() {
                                 <span>{lead.public_phone}</span>
                               </a>
 
+                              {/* Source Link for Phone */}
+                              {lead.phone_source_url && (
+                                <a
+                                  href={lead.phone_source_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="source-link-pill"
+                                  title={`Inspect verified public source: ${lead.phone_source_url}`}
+                                >
+                                  <ExternalLinkIcon size={10} color="#38bdf8" />
+                                  <span>Source 🔗</span>
+                                </a>
+                              )}
+
                               {/* Copy Phone */}
                               <button
                                 className="btn-copy-mini"
@@ -663,7 +677,7 @@ export default function LeadDatabasePage() {
 
                           {/* Email Row */}
                           {lead.public_email && (
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                               <a
                                 href={`mailto:${lead.public_email}`}
                                 className="contact-link"
@@ -673,6 +687,18 @@ export default function LeadDatabasePage() {
                                 <MailIcon size={11} color="#10b981" />
                                 <span>{lead.public_email}</span>
                               </a>
+                              {lead.email_source_url && (
+                                <a
+                                  href={lead.email_source_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="source-link-pill"
+                                  title={`Inspect verified public source: ${lead.email_source_url}`}
+                                >
+                                  <ExternalLinkIcon size={10} color="#38bdf8" />
+                                  <span>Source 🔗</span>
+                                </a>
+                              )}
                               <button
                                 className="btn-copy-mini"
                                 onClick={() => copyToClipboard(lead.public_email, `e-${lead.id}`, "Email")}
@@ -843,6 +869,44 @@ export default function LeadDatabasePage() {
                   <p style={{ color: "#cbd5e1", fontSize: 13, lineHeight: 1.6, margin: 0 }}>
                     {selectedLead.notes || selectedLead.evidence_summary || "Verified executive with documented public footprint."}
                   </p>
+
+                  {/* Documented Public Sources & Proof */}
+                  {((selectedLead.source_urls && selectedLead.source_urls.length > 0) || selectedLead.phone_source_url || selectedLead.email_source_url) && (
+                    <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid rgba(255, 255, 255, 0.07)" }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#38bdf8", textTransform: "uppercase", letterSpacing: "0.04em", display: "block", marginBottom: 6 }}>
+                        🔗 Public Finding Sources &amp; Citations:
+                      </span>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {selectedLead.phone_source_url && (
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "rgba(255, 255, 255, 0.03)", padding: "4px 10px", borderRadius: 6 }}>
+                            <span style={{ fontSize: 12, color: "#fbbf24", fontWeight: 600 }}>Phone / WhatsApp Source:</span>
+                            <a href={selectedLead.phone_source_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#38bdf8", textDecoration: "underline", maxWidth: 340, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {selectedLead.phone_source_url}
+                            </a>
+                          </div>
+                        )}
+                        {selectedLead.email_source_url && (
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "rgba(255, 255, 255, 0.03)", padding: "4px 10px", borderRadius: 6 }}>
+                            <span style={{ fontSize: 12, color: "#34d399", fontWeight: 600 }}>Email Contact Source:</span>
+                            <a href={selectedLead.email_source_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#38bdf8", textDecoration: "underline", maxWidth: 340, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {selectedLead.email_source_url}
+                            </a>
+                          </div>
+                        )}
+                        {(selectedLead.source_urls || []).map((srcUrl, sIdx) => {
+                          if (!srcUrl || srcUrl === selectedLead.phone_source_url || srcUrl === selectedLead.email_source_url) return null;
+                          return (
+                            <div key={sIdx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: "rgba(255, 255, 255, 0.03)", padding: "4px 10px", borderRadius: 6 }}>
+                              <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 500 }}>Public Record / Profile:</span>
+                              <a href={srcUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: "#38bdf8", textDecoration: "underline", maxWidth: 340, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {srcUrl}
+                              </a>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* CRM Stage & Notes */}

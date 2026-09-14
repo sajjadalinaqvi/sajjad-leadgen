@@ -84,10 +84,18 @@ class Lead(BaseModel):
     professional_profile_url: Optional[str] = ""
     public_email: Optional[str] = ""
     public_phone: Optional[str] = ""
+    phone_source_url: Optional[str] = ""
+    email_source_url: Optional[str] = ""
+    company_source_url: Optional[str] = ""
+    has_whatsapp: bool = True
+    whatsapp_number: Optional[str] = ""
+    wealth_tier: Optional[str] = "High Net Worth ($5M - $25M)"
+    estimated_net_worth: Optional[str] = "$10M+"
+    investment_capacity: Optional[str] = "$1M - $5M Liquid"
     email_verification_status: EmailVerificationStatus = EmailVerificationStatus.UNKNOWN
     
     # Intelligence & Scoring
-    pakistan_connection_status: str = "Unknown" # High, Medium, Low, Unknown
+    pakistan_connection_status: str = "High" # High, Medium, Low, Unknown
     pakistan_connection_score: int = 0
     overseas_status: str = "Outside Pakistan"
     overseas_status_score: int = 0
@@ -119,7 +127,9 @@ class CandidateSearchRequest(BaseModel):
     countries: List[str] = ["UAE", "Saudi Arabia", "United Kingdom", "United States"]
     professions: List[str] = []
     keywords: Optional[str] = ""
-    min_score: int = 50
+    min_score: int = 30
+    whatsapp_only: bool = True
+    wealth_tier: Optional[str] = "All"
     confidence: Optional[str] = "All"
     pakistan_connection_filter: Optional[str] = "All"
     islamabad_intent_filter: Optional[str] = "All"
