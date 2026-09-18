@@ -128,7 +128,7 @@ class CandidateSearchRequest(BaseModel):
     professions: List[str] = []
     keywords: Optional[str] = ""
     min_score: int = 30
-    whatsapp_only: bool = True
+    whatsapp_only: bool = False
     wealth_tier: Optional[str] = "All"
     confidence: Optional[str] = "All"
     pakistan_connection_filter: Optional[str] = "All"

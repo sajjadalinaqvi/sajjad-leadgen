@@ -55,7 +55,7 @@ export default function OverseasLeadsPage() {
   const [selectedCountries, setSelectedCountries] = useState(["United Kingdom", "UAE", "United States", "Saudi Arabia"]);
   const [selectedProfessions, setSelectedProfessions] = useState([]);
   const [selectedWealthTier, setSelectedWealthTier] = useState("All");
-  const [whatsappOnly, setWhatsappOnly] = useState(true);
+  const [whatsappOnly, setWhatsappOnly] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [minScore, setMinScore] = useState(30);
   const [candidates, setCandidates] = useState([]);
@@ -155,7 +155,7 @@ export default function OverseasLeadsPage() {
 
   // Initial search loads authentic high net worth investors
   useEffect(() => {
-    executeDiscovery(selectedCountries, [], "", 30, "All", true);
+    executeDiscovery(selectedCountries, [], "", 30, "All", false);
   }, []);
 
   const handleBatchSaveAll = async () => {

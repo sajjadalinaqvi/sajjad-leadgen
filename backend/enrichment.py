@@ -1,4 +1,5 @@
 import re
+import base64
 import asyncio
 import logging
 import urllib.parse
@@ -72,11 +73,83 @@ def extract_phones_from_text(text: str) -> List[str]:
     return phones
 
 
+def _decode_bing_url(bing_href: str) -> str:
+    """Decode Bing's base64-encoded redirect URLs to get the real destination."""
+    m = re.search(r"[?&]u=a1([a-zA-Z0-9_-]+)", bing_href)
+    if m:
+        encoded = m.group(1)
+        encoded += "=" * ((4 - len(encoded) % 4) % 4)
+        try:
+            return base64.urlsafe_b64decode(encoded).decode("utf-8", errors="ignore")
+        except Exception:
+            pass
+    return bing_href
+
+
+async def _search_ddg_lite(client: httpx.AsyncClient, query: str) -> List[Dict[str, str]]:
+    """Search DuckDuckGo Lite — no JavaScript, no CAPTCHA, reliable HTML parsing."""
+    results = []
+    try:
+        resp = await client.post("https://lite.duckduckgo.com/lite/", data={"q": query})
+        if resp.status_code != 200:
+            log.debug("DDG Lite returned status %d for enrichment query: %s", resp.status_code, query[:80])
+            return results
+        soup = BeautifulSoup(resp.text, "html.parser")
+        links = soup.select("a.result-link")
+        snippets = soup.select("td.result-snippet")
+        for i, a in enumerate(links):
+            title = a.get_text(strip=True)
+            raw_href = a.get("href", "")
+            m = re.search(r"uddg=([^&]+)", raw_href)
+            real_url = urllib.parse.unquote(m.group(1)) if m else raw_href
+            snip = snippets[i].get_text(strip=True) if i < len(snippets) else ""
+            if real_url.startswith("http"):
+                results.append({"title": title, "url": real_url, "snippet": snip})
+    except Exception as e:
+        log.debug("DDG Lite enrichment error for '%s': %s", query[:80], e)
+    return results
+
+
+async def _search_bing(client: httpx.AsyncClient, query: str) -> List[Dict[str, str]]:
+    """Search Bing Web — reliable fallback when DDG returns empty."""
+    results = []
+    try:
+        url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}"
+        resp = await client.get(url)
+        if resp.status_code != 200:
+            log.debug("Bing returned status %d for enrichment query: %s", resp.status_code, query[:80])
+            return results
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for r in soup.select("li.b_algo"):
+            h2 = r.select_one("h2 a")
+            p = r.select_one("div.b_caption p, p")
+            if h2:
+                title = h2.get_text(strip=True)
+                raw_href = h2.get("href", "")
+                real_url = _decode_bing_url(raw_href)
+                snip = p.get_text(strip=True) if p else ""
+                if real_url.startswith("http"):
+                    results.append({"title": title, "url": real_url, "snippet": snip})
+    except Exception as e:
+        log.debug("Bing enrichment error for '%s': %s", query[:80], e)
+    return results
+
+
+async def _multi_engine_search(client: httpx.AsyncClient, query: str) -> List[Dict[str, str]]:
+    """Try DDG Lite first, fall back to Bing if empty."""
+    results = await _search_ddg_lite(client, query)
+    if results:
+        return results
+    results = await _search_bing(client, query)
+    return results
+
+
 async def dork_contact_search(name: str, company: str = "", country: str = "", location: str = "") -> Dict[str, Any]:
     """
     Executes targeted OSINT search dorks to discover personal phone numbers,
     WhatsApp contacts, public emails, and company websites for a specific person.
     Attaches the exact public source URL where each finding was discovered.
+    Uses DuckDuckGo Lite (primary) + Bing (fallback) instead of Yahoo.
     """
     info = {
         "phones": [],
@@ -106,44 +179,40 @@ async def dork_contact_search(name: str, company: str = "", country: str = "", l
     async with httpx.AsyncClient(headers=HEADERS, timeout=10, follow_redirects=True) as client:
         for query in dork_queries[:3]:
             try:
-                # Search via Yahoo query aggregator
-                url = f"https://search.yahoo.com/search?p={urllib.parse.quote(query)}"
-                resp = await client.get(url)
-                if resp.status_code == 200:
-                    soup = BeautifulSoup(resp.text, "html.parser")
-                    for div in soup.select("div.algo"):
-                        h3 = div.select_one("h3 a")
-                        snippet = div.select_one("div.compText p, p")
-                        href = h3.get("href", "") if h3 else ""
-                        snip_text = snippet.get_text(strip=True) if snippet else ""
-                        full_content = f"{href} {snip_text}"
+                hits = await _multi_engine_search(client, query)
 
-                        if href and href.startswith("http") and not any(bad in href.lower() for bad in ["yahoo.com", "facebook.com"]):
-                            if href not in info["discovered_urls"]:
-                                info["discovered_urls"].append(href)
+                for hit in hits:
+                    href = hit["url"]
+                    snip_text = hit["snippet"]
+                    full_content = f"{href} {snip_text}"
 
-                        # Extract LinkedIn profile
-                        if "linkedin.com/in/" in href and not info["linkedin_url"]:
-                            info["linkedin_url"] = href
+                    bad_domains = ["facebook.com", "youtube.com", "twitter.com", "instagram.com"]
+                    if href and href.startswith("http") and not any(bad in href.lower() for bad in bad_domains):
+                        if href not in info["discovered_urls"]:
+                            info["discovered_urls"].append(href)
 
-                        # Extract emails with source URL
-                        extracted_emails = extract_emails_from_text(full_content)
-                        for em in extracted_emails:
-                            if em not in info["emails"]:
-                                info["emails"].append(em)
-                                if not info["email_source_url"]:
-                                    info["email_source_url"] = href or url
+                    # Extract LinkedIn profile
+                    if "linkedin.com/in/" in href and not info["linkedin_url"]:
+                        info["linkedin_url"] = href
 
-                        # Extract phones with source URL
-                        extracted_phones = extract_phones_from_text(full_content)
-                        for ph in extracted_phones:
-                            if ph not in info["phones"]:
-                                info["phones"].append(ph)
-                                if not info["phone_source_url"]:
-                                    info["phone_source_url"] = href or url
+                    # Extract emails with source URL
+                    extracted_emails = extract_emails_from_text(full_content)
+                    for em in extracted_emails:
+                        if em not in info["emails"]:
+                            info["emails"].append(em)
+                            if not info["email_source_url"]:
+                                info["email_source_url"] = href
 
-                        if snip_text:
-                            info["source_snippets"].append(snip_text[:200])
+                    # Extract phones with source URL
+                    extracted_phones = extract_phones_from_text(full_content)
+                    for ph in extracted_phones:
+                        if ph not in info["phones"]:
+                            info["phones"].append(ph)
+                            if not info["phone_source_url"]:
+                                info["phone_source_url"] = href
+
+                    if snip_text:
+                        info["source_snippets"].append(snip_text[:200])
 
                 await asyncio.sleep(0.3)
             except Exception as e:
