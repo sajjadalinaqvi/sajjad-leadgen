@@ -11,10 +11,16 @@ from .base import BaseLeadSource
 from .uk_companies_source import UKCompaniesHouseSource
 from .us_npi_source import USNPIDoctorSource
 from .appna_source import APPNALeadSource
+from .real_estate_source import RealEstateInvestorSource, PAK_CITY_TARGETS
+from .people_search_source import PeopleSearchEnricher
+from .linkedin_finder import GenuineLinkedInFinder
+from .commercial_enricher import CommercialEnricher
 from .name_validator import validate_and_clean_person_name, DIASPORA_SURNAME_SET
 from compliance import should_throttle_domain, record_domain_request, is_contact_suppressed
 from scorer import calculate_lead_score
 from enrichment import extract_phones_from_text, extract_emails_from_text, crawl_website_for_contacts, dork_contact_search
+from contact_validator import double_check_lead_contacts
+from database import get_existing_crm_lead_signatures
 
 log = logging.getLogger(__name__)
 
@@ -49,9 +55,13 @@ class SearchEngineLeadSource(BaseLeadSource):
 
     def __init__(self):
         super().__init__(name="Live Multi-Source Diaspora Discovery", source_type="Official Public Registries")
+        self.re_source = RealEstateInvestorSource()
         self.uk_ch = UKCompaniesHouseSource()
         self.us_npi = USNPIDoctorSource()
         self.appna = APPNALeadSource()
+        self.people_search = PeopleSearchEnricher()
+        self.linkedin_finder = GenuineLinkedInFinder()
+        self.commercial_enricher = CommercialEnricher()
 
     async def discover_candidates(self, criteria: Dict[str, Any]) -> List[Dict[str, Any]]:
         countries = criteria.get("countries", ["United Kingdom", "UAE", "Saudi Arabia", "United States"])
@@ -60,11 +70,64 @@ class SearchEngineLeadSource(BaseLeadSource):
         wealth_filter = criteria.get("wealth_tier", "All")
         whatsapp_only = criteria.get("whatsapp_only", False)
         limit = criteria.get("limit", 25)
+        require_phone = criteria.get("require_phone", False)
+        require_email = criteria.get("require_email", False)
+        require_linkedin = criteria.get("require_linkedin", False)
+        exclude_existing_crm = criteria.get("exclude_existing_crm", True)
 
-        log.info("=== OVERSEAS DISCOVERY START === countries=%s, professions=%s, keywords='%s', whatsapp_only=%s, limit=%d",
-                 countries, professions, custom_kw, whatsapp_only, limit)
+        use_hunter = bool(criteria.get("use_hunter", False))
+        use_tomba = bool(criteria.get("use_tomba", False))
+        use_apollo = bool(criteria.get("use_apollo", False))
+
+        log.info(
+            "=== OVERSEAS DISCOVERY START === countries=%s, professions=%s, keywords='%s', whatsapp_only=%s, limit=%d, "
+            "req_phone=%s, req_email=%s, req_li=%s, excl_crm=%s, use_hunter=%s, use_tomba=%s, use_apollo=%s",
+            countries, professions, custom_kw, whatsapp_only, limit,
+            require_phone, require_email, require_linkedin, exclude_existing_crm,
+            use_hunter, use_tomba, use_apollo,
+        )
+        if not (use_hunter or use_tomba or use_apollo):
+            log.info("[Commercial] No API providers allowed by user — Hunter/Tomba/Apollo will not be called")
+        else:
+            log.info(
+                "[Commercial] User-allowed providers this run: hunter=%s tomba=%s apollo=%s",
+                use_hunter, use_tomba, use_apollo,
+            )
+
+        # 0. Load existing CRM lead signatures to prevent extracting duplicate contacts
+        crm_sigs = {"names": set(), "emails": set(), "phones": set(), "linkedin_slugs": set()}
+        if exclude_existing_crm:
+            try:
+                crm_sigs = get_existing_crm_lead_signatures()
+                log.info("CRM Exclusion active: %d names, %d emails, %d phones, %d LinkedIn slugs loaded",
+                         len(crm_sigs["names"]), len(crm_sigs["emails"]), len(crm_sigs["phones"]), len(crm_sigs["linkedin_slugs"]))
+            except Exception as crm_err:
+                log.warning("Could not load CRM signatures: %s", crm_err)
+
+        def is_in_crm(cand_dict: Dict[str, Any]) -> bool:
+            if not exclude_existing_crm:
+                return False
+            name = (cand_dict.get("full_name") or "").strip().lower()
+            if name and name in crm_sigs["names"]:
+                return True
+            email = (cand_dict.get("public_email") or "").strip().lower()
+            if email and email in crm_sigs["emails"]:
+                return True
+            digits = re.sub(r"\D", "", cand_dict.get("public_phone") or "")
+            if len(digits) >= 7:
+                if digits in crm_sigs["phones"] or digits[-10:] in crm_sigs["phones"]:
+                    return True
+            li_url = (cand_dict.get("professional_profile_url") or "").strip().lower()
+            if "linkedin.com/in/" in li_url:
+                slug = li_url.split("linkedin.com/in/")[-1].split("/")[0].split("?")[0]
+                if slug and slug in crm_sigs["linkedin_slugs"]:
+                    return True
+            return False
 
         tasks = []
+
+        # 0. Dedicated Real Estate Investor Discovery Engine (High Net Worth Diaspora Property Buyers)
+        tasks.append(self.re_source.discover_candidates(criteria))
 
         # 1. UK Companies House Official Register
         if any(c in ["United Kingdom", "UK", "All"] for c in countries):
@@ -99,7 +162,7 @@ class SearchEngineLeadSource(BaseLeadSource):
 
         log.info("Total raw candidates gathered across registries: %d", len(raw_candidates))
 
-        # Deduplicate candidates by clean name + company
+        # Deduplicate candidates by clean name + company, and filter out CRM duplicates
         seen_keys = set()
         candidates = []
         for item in raw_candidates:
@@ -119,33 +182,99 @@ class SearchEngineLeadSource(BaseLeadSource):
             if dedup_key in seen_keys:
                 continue
             seen_keys.add(dedup_key)
+
+            # Exclusion: Check if candidate is already saved in CRM database
+            if is_in_crm(item):
+                log.info("Excluding already-saved CRM lead: %s", clean_name)
+                continue
+
             candidates.append(item)
 
-        log.info("After validation and dedup: %d verified authentic candidates", len(candidates))
+        log.info("After validation, dedup & CRM exclusion: %d authentic candidates", len(candidates))
 
-        # 5. Enrich candidates (phone/email extraction, website crawl, lead scoring)
-        async with httpx.AsyncClient(headers=HEADERS, timeout=8, follow_redirects=True) as enrich_client:
-            async def enrich_item(cand):
+        # 5. Enrich candidates (people search directory, website crawl, personal contact double-check)
+        enrich_pool = candidates[:min(len(candidates), max(limit * 2, 6))]
+        sem = asyncio.Semaphore(5)
+
+        async def enrich_item(cand):
+            async with sem:
                 try:
-                    # If company website available, crawl for direct phone/email with source citation
-                    if cand.get("company_website") and (not cand.get("public_phone") or not cand.get("public_email")):
-                        contacts = await crawl_website_for_contacts(cand["company_website"])
-                        if contacts.get("phones") and not cand.get("public_phone"):
-                            cand["public_phone"] = contacts["phones"][0]
-                            cand["phone_source_url"] = contacts.get("phone_source_url", cand["company_website"])
-                        if contacts.get("emails") and not cand.get("public_email"):
-                            cand["public_email"] = contacts["emails"][0]
-                            cand["email_source_url"] = contacts.get("email_source_url", cand["company_website"])
+                    # 1. Genuine LinkedIn Profile Matcher (No guessing slugs)
+                    if not cand.get("linkedin_url"):
+                        full_nm = cand.get("full_name", "")
+                        cty = cand.get("city") or cand.get("current_city", "")
+                        ctry = cand.get("country") or cand.get("current_country", "")
+                        emp = cand.get("employer") or cand.get("company", "")
+                        occ = cand.get("occupation") or cand.get("profession", "")
+                        li_res = await self.linkedin_finder.find_profile(
+                            full_name=full_nm,
+                            city=cty,
+                            country=ctry,
+                            employer=emp,
+                            occupation=occ
+                        )
+                        if li_res.get("linkedin_url"):
+                            cand["linkedin_url"] = li_res["linkedin_url"]
+                            cand["linkedin_source_url"] = li_res["linkedin_source_url"]
+                            cand["linkedin_identity_match"] = li_res["linkedin_identity_match"]
+                            cand["linkedin_match_confidence"] = li_res["linkedin_match_confidence"]
+                            cand["professional_profile_url"] = li_res["linkedin_url"]
+                            cand["personal_linkedin_verified"] = li_res["linkedin_identity_match"] == "verified"
 
-                    # Normalize WhatsApp number
-                    if cand.get("public_phone"):
-                        digits_only = re.sub(r"\D", "", cand["public_phone"])
+                    # 2. Commercial APIs only if user opted in for this search
+                    cand = await self.commercial_enricher.enrich_candidate(
+                        cand,
+                        allow_hunter=use_hunter,
+                        allow_tomba=use_tomba,
+                        allow_apollo=use_apollo,
+                    )
+
+                    # 3. People Search Directory enrichment for personal contacts
+                    if not cand.get("personal_phone") or not cand.get("personal_email"):
+                        try:
+                            cand = await self.people_search.enrich(cand)
+                        except Exception as ps_err:
+                            log.debug("People search enrichment skipped for %s: %s", cand.get('full_name'), ps_err)
+
+                    # 4. If company website available, crawl for official contacts
+                    site = cand.get("company_website") or ""
+                    is_registry = any(reg in site.lower() for reg in [
+                        "company-information.service.gov.uk", "gov.uk", "npiregistry", "cms.hhs.gov", "appna.org", "linkedin.com"
+                    ])
+                    if site and not is_registry and (not cand.get("professional_phone") or not cand.get("professional_email")):
+                        contacts = await crawl_website_for_contacts(site)
+                        if contacts.get("phones") and not cand.get("professional_phone"):
+                            cand["professional_phone"] = contacts["phones"][0]
+                        if contacts.get("emails") and not cand.get("professional_email"):
+                            cand["professional_email"] = contacts["emails"][0]
+                            cand["email_source_url"] = contacts.get("email_source_url", site)
+
+                    # 5. DOUBLE-CHECK ALL CONTACT CHANNELS TWICE (ApexLead Verification Engine)
+                    cand = double_check_lead_contacts(cand)
+
+                    # 6. Normalize Section 9 Fields and Legacy Sync
+                    if cand.get("personal_phone"):
+                        digits_only = re.sub(r"\D", "", cand["personal_phone"])
                         cand["whatsapp_number"] = digits_only
                         cand["has_whatsapp"] = len(digits_only) >= 9
+                        cand["public_phone"] = cand["personal_phone"]
+                    elif cand.get("professional_phone"):
+                        cand["public_phone"] = cand["professional_phone"]
+                        cand["whatsapp_number"] = ""
+                        cand["has_whatsapp"] = False
                     else:
+                        cand["public_phone"] = ""
+                        cand["whatsapp_number"] = ""
                         cand["has_whatsapp"] = False
 
-                    # Score candidate
+                    if cand.get("personal_email"):
+                        cand["public_email"] = cand["personal_email"]
+                    elif cand.get("professional_email"):
+                        cand["public_email"] = cand["professional_email"]
+                    else:
+                        cand["public_email"] = ""
+
+                    # 7. Score candidate
                     scoring = calculate_lead_score(cand)
                     cand["pakistan_connection_score"] = scoring.pakistan_connection_score
                     cand["overseas_status_score"] = scoring.overseas_status_score
@@ -157,55 +286,88 @@ class SearchEngineLeadSource(BaseLeadSource):
                     cand["score_category"] = scoring.score_category.value
                     cand["confidence"] = scoring.confidence.value
 
+                    # Ensure Section 9 defaults
+                    cand.setdefault("review_status", "needs_review")
+                    cand.setdefault("opt_out", False)
+                    cand.setdefault("pakistan_connection_evidence", [])
+                    cand.setdefault("evidence_urls", [])
+                    cand.setdefault("source_names", [])
+
                     # Append verified citations to evidence list
                     ev_list = [e.dict() for e in scoring.evidence_list]
-                    if cand.get("phone_source_url"):
+                    if cand.get("phone_source_url") and cand.get("personal_phone"):
                         ev_list.append({
                             "category": "contact_reachability",
                             "points": 25,
-                            "description": f"Verified direct phone {cand.get('public_phone')} documented at registry source",
+                            "description": f"Verified direct phone {cand.get('personal_phone')} documented at registry source",
                             "source_url": cand["phone_source_url"],
                             "source_type": cand.get("source_types", ["Public Registry"])[0],
                             "evidence_date": cand.get("collection_date", "")
                         })
-                    if cand.get("email_source_url"):
+                    if cand.get("email_source_url") and cand.get("personal_email"):
                         ev_list.append({
                             "category": "contact_reachability",
                             "points": 15,
-                            "description": f"Verified public email {cand.get('public_email')} discovered at source",
+                            "description": f"Verified personal email {cand.get('personal_email')} discovered at source",
                             "source_url": cand["email_source_url"],
-                            "source_type": "Corporate Contact Page",
+                            "source_type": "Personal Public Contact",
                             "evidence_date": cand.get("collection_date", "")
                         })
                     cand["evidence_list"] = ev_list
 
-                    # Custom luxury real estate pitch
                     first_name = cand["full_name"].split()[0]
-                    target_sec = cand.get("pakistan_real_estate_target") or "CDA Sector F-6 / Blue Area Islamabad"
-                    cand["whatsapp_pitch"] = (
-                        f"Salam {first_name}, reaching out from Islamabad regarding exclusive off-market luxury "
-                        f"real estate and high-yield commercial parcels in {target_sec} tailored for senior "
-                        f"executive leadership. Would you be open to a confidential acquisition brief?"
-                    )
+                    target_city = criteria.get("target_pakistan_city", criteria.get("target_city", "All"))
+                    city_cfg = PAK_CITY_TARGETS.get(target_city if target_city in PAK_CITY_TARGETS else "All", PAK_CITY_TARGETS["All"])
+                    
+                    if not cand.get("pakistan_real_estate_target") or "CDA Sector F-6" in cand.get("pakistan_real_estate_target", ""):
+                        cand["pakistan_real_estate_target"] = f"{city_cfg['title']}: {city_cfg['sectors']}"
+
+                    if not cand.get("whatsapp_pitch"):
+                        cand["whatsapp_pitch"] = (
+                            f"Salam {first_name}, reaching out regarding exclusive off-market commercial parcels and "
+                            f"luxury residential developments in {city_cfg['title']} ({city_cfg['sectors']}) "
+                            f"tailored for senior overseas leadership. Would you be open to a confidential brief?"
+                        )
                 except Exception as e:
                     log.debug("Enrich candidate notice: %s", e)
                 return cand
 
-            enriched_candidates = await asyncio.gather(*[enrich_item(c) for c in candidates])
+        enriched_candidates = await asyncio.gather(*[enrich_item(c) for c in enrich_pool])
+
+        # Secondary CRM exclusion check (in case newly enriched email/phone matches CRM)
+        if exclude_existing_crm:
+            enriched_candidates = [c for c in enriched_candidates if not is_in_crm(c)]
 
         phone_count = sum(1 for c in enriched_candidates if c.get("public_phone"))
         email_count = sum(1 for c in enriched_candidates if c.get("public_email"))
-        log.info("After enrichment: %d candidates (%d have verified phone, %d have verified email)",
-                 len(enriched_candidates), phone_count, email_count)
+        li_count = sum(1 for c in enriched_candidates if c.get("professional_profile_url"))
+        log.info("After enrichment: %d candidates (verified phones: %d, verified emails: %d, personal linkedins: %d)",
+                 len(enriched_candidates), phone_count, email_count, li_count)
 
-        # 6. Filter for WhatsApp only if requested
+        # 6. Apply user-requested contact criteria filters
+        if require_phone:
+            pre = len(enriched_candidates)
+            enriched_candidates = [
+                c for c in enriched_candidates
+                if (c.get("personal_phone_verified") or c.get("personal_phone") or (c.get("public_phone") and c.get("phone_type") in ("mobile", "direct", "unknown")))
+                and c.get("phone_type") != "clinic"
+            ]
+            log.info("Require Personal Phone filter: %d -> %d candidates", pre, len(enriched_candidates))
+
+        if require_email:
+            pre = len(enriched_candidates)
+            enriched_candidates = [c for c in enriched_candidates if c.get("personal_email_verified") or c.get("public_email")]
+            log.info("Require Personal Email filter: %d -> %d candidates", pre, len(enriched_candidates))
+
+        if require_linkedin:
+            pre = len(enriched_candidates)
+            enriched_candidates = [c for c in enriched_candidates if c.get("personal_linkedin_verified") or "linkedin.com/in/" in (c.get("professional_profile_url") or "")]
+            log.info("Require Personal LinkedIn filter: %d -> %d candidates", pre, len(enriched_candidates))
+
         if whatsapp_only:
             pre_wa = len(enriched_candidates)
             enriched_candidates = [c for c in enriched_candidates if c.get("has_whatsapp") and c.get("public_phone")]
-            log.info("WhatsApp filter applied: %d -> %d candidates (dropped %d without phone)",
-                     pre_wa, len(enriched_candidates), pre_wa - len(enriched_candidates))
-        else:
-            log.info("WhatsApp filter: OFF (keeping all %d candidates)", len(enriched_candidates))
+            log.info("WhatsApp filter: %d -> %d candidates", pre_wa, len(enriched_candidates))
 
         # 7. Filter by Wealth Tier if requested
         if wealth_filter and wealth_filter != "All":
@@ -220,7 +382,23 @@ class SearchEngineLeadSource(BaseLeadSource):
                 return True
             enriched_candidates = [c for c in enriched_candidates if matches_tier(c)]
 
-        # 8. Rank by wealth strength + lead score
+        # 8. Rank by verified contact reachability + wealth strength + lead score
+        def get_contact_weight(c: Dict[str, Any]) -> int:
+            w = 0
+            if c.get("personal_phone") or c.get("personal_phone_verified"):
+                w += 600
+            elif c.get("public_phone") and c.get("phone_type") != "clinic":
+                w += 300
+            if c.get("has_whatsapp"):
+                w += 250
+            if c.get("personal_email_verified") or c.get("personal_email"):
+                w += 150
+            if c.get("personal_linkedin_verified") or c.get("linkedin_url"):
+                w += 100
+            if c.get("real_estate_intent_score", 0) >= 15:
+                w += 100
+            return w
+
         def get_wealth_weight(c: Dict[str, Any]) -> int:
             tier = (c.get("wealth_tier") or "").lower()
             if "ultra" in tier or "billion" in tier or "100m" in tier:
@@ -232,7 +410,7 @@ class SearchEngineLeadSource(BaseLeadSource):
             return 100
 
         enriched_candidates.sort(
-            key=lambda x: (get_wealth_weight(x), x.get("total_lead_score", 0)),
+            key=lambda x: (get_contact_weight(x), get_wealth_weight(x), x.get("total_lead_score", 0)),
             reverse=True
         )
 
@@ -257,7 +435,8 @@ class SearchEngineLeadSource(BaseLeadSource):
                     balanced.append(c)
             enriched_candidates = balanced
 
-        log.info("Discovery completed: returning %d verified authentic candidates", len(enriched_candidates[:limit]))
+        log.info("Discovery completed: returning %d verified authentic candidates (limit requested: %d)",
+                 len(enriched_candidates[:limit]), limit)
         return enriched_candidates[:limit]
 
     async def _discover_gulf_executives(self, country: str, professions: List[str], custom_kw: str) -> List[Dict[str, Any]]:
@@ -395,31 +574,72 @@ class SearchEngineLeadSource(BaseLeadSource):
         linkedin_search = f"https://www.linkedin.com/search/results/people/?keywords={urllib.parse.quote(clean_name + ' ' + (company or country))}"
         google_dork = f"https://www.google.com/search?q={urllib.parse.quote('site:linkedin.com/in \"' + clean_name + '\" ' + (company or country))}"
 
+        is_genuine_li = "linkedin.com/in/" in url.lower()
+        li_url = url if is_genuine_li else None
+
+        ev_desc = f"Public executive profile in {country}. Self-described/indexed diaspora connection. Role: {job_title} at {company or country}."
+        evidence_item = {
+            "evidence_type": "public_executive_profile",
+            "description": ev_desc,
+            "source_url": url,
+            "source_name": "Public Executive Directory",
+            "confidence": 75,
+            "evidence_date": "2026",
+        }
+
+        full_display_name = f"{clean_name}, {cred}" if cred else clean_name
+        employer_name = company.strip() or f"{country} Executive Enterprise"
+
         return {
-            "full_name": f"{clean_name}, {cred}" if cred else clean_name,
+            # ── Section 9 Required Fields ──
+            "full_name": full_display_name,
+            "occupation": default_prof,
+            "employer": employer_name,
+            "country": country,
+            "city": default_city or (country + " Metro"),
+            "pakistan_connection_evidence": [evidence_item],
+            "personal_phone": None,
+            "phone_type": "unknown",
+            "phone_source_url": None,
+            "phone_match_confidence": 0,
+            "professional_phone": phones[0] if phones else None,
+            "personal_email": None,
+            "professional_email": emails[0] if emails else None,
+            "email_source_url": url if emails else None,
+            "email_verified": False,
+            "email_match_confidence": 0,
+            "linkedin_url": li_url,
+            "linkedin_source_url": li_url,
+            "linkedin_identity_match": "verified" if is_genuine_li else "unknown",
+            "linkedin_match_confidence": 85 if is_genuine_li else 0,
+            "evidence_urls": [url],
+            "source_names": ["Public Executive Profile"],
+            "last_verified": "2026-10",
+            "review_status": "needs_review",
+            "opt_out": False,
+
+            # ── Transparent Professional Indicators ──
             "job_title": job_title.strip() or default_prof,
             "profession": default_prof,
-            "company": company.strip() or f"{country} Executive Enterprise",
+            "company": employer_name,
             "company_website": "",
             "company_source_url": url,
             "current_country": country,
             "current_city": default_city or (country + " Metro"),
             "company_size": "250+",
-            "professional_profile_url": url if "linkedin.com" in url else linkedin_search,
+            "professional_profile_url": li_url or "",
             "linkedin_search_url": linkedin_search,
             "google_profile_url": google_dork,
             "public_email": emails[0] if emails else "",
             "public_phone": phones[0] if phones else "",
             "phone_source_url": url if phones else "",
             "email_source_url": url if emails else "",
-            "source_urls": [url],
-            "source_types": ["Public Executive Profile", "Verified Diaspora Professional"],
-            "wealth_tier": "💎 Very HNW ($25M - $100M)",
-            "estimated_net_worth": "$20M - $50M+",
-            "investment_capacity": "$5M - $12M High-Yield Commercial Parcels",
-            "wealth_source": f"Senior executive operations in {country} ({company or 'Corporate Group'})",
+            "wealth_tier": "High Net Worth Professional (Gulf Executive)",
+            "estimated_net_worth": "Executive Leadership Tier",
+            "investment_capacity": "Commercial Capital Prospect",
+            "wealth_source": f"Senior executive operations in {country} ({employer_name})",
             "pakistan_real_estate_target": "CDA Sector F-6, F-7 & Blue Area Islamabad Commercial High-Rise",
-            "evidence_summary": f"Verified executive profile in {country}. Role: {job_title} at {company or country}. Discovered at public source.",
+            "evidence_summary": ev_desc,
             "notes": f"Verified profile URL: {url}. Public context: {snippet[:200]}",
             "lead_status": "New",
         }

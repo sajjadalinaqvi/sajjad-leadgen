@@ -16,12 +16,25 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
+import random
+
 UK_SURNAME_VECTORS = [
-    "Choudrey", "Mussarat", "Khan", "Malik", "Iqbal", "Rashid", "Ahmed", "Shaikh",
-    "Rehman", "Qureshi", "Siddiqui", "Mirza", "Butt", "Dar", "Baig", "Farooq",
-    "Baqir", "Anwar", "Shah", "Ali", "Babar", "Tariq", "Hussain", "Dawood", "Sheikha",
-    "Allana", "Shroff", "Khalid", "Masood", "Rao", "Sherwani", "Akeel", "Rahman"
+    "Khan", "Malik", "Chaudhry", "Qureshi", "Siddiqui", "Iqbal", "Rashid", "Ahmed", "Shaikh",
+    "Rehman", "Mirza", "Butt", "Dar", "Baig", "Farooq", "Baqir", "Anwar", "Shah", "Ali",
+    "Babar", "Tariq", "Hussain", "Dawood", "Sheikha", "Allana", "Shroff", "Khalid", "Masood",
+    "Rao", "Sherwani", "Akeel", "Rahman", "Niazi", "Abbasi", "Gillani", "Naqvi", "Rizvi",
+    "Bhatti", "Cheema", "Bajwa", "Rana", "Kasuri", "Durrani", "Memon", "Mansha", "Saigol",
+    "Tabba", "Lakhani", "Habib", "Hashwani", "Dewan", "Bawany", "Vohra", "Tareen", "Haroon",
+    "Alvi", "Arif", "Aslam", "Ashraf", "Javed", "Kamran", "Munir", "Nadeem", "Saleem", "Zafar"
 ]
+
+# Business keywords that disqualify a lead as not being a high-net-worth investor
+LOW_VALUE_BUSINESS_KEYWORDS = {
+    "curry", "takeaway", "restaurant", "cafe", "kebab", "fried chicken", "fast food",
+    "taxi", "minicab", "barber", "salon", "car wash", "dry cleaner", "newsagent", "grocery",
+    "corner shop", "auto trader", "car hire", "tyre", "repair", "meat", "sweets", "catering",
+    "bakeries", "bakery", "fish and chips", "off licence"
+}
 
 
 class UKCompaniesHouseSource(BaseLeadSource):
@@ -44,7 +57,7 @@ class UKCompaniesHouseSource(BaseLeadSource):
         if not any(c in ["United Kingdom", "UK", "All"] for c in countries):
             return []
 
-        # Surnames selection
+        # Surnames selection - dynamic rotation across runs to prevent showing same names
         surnames = []
         if custom_kw and custom_kw.lower() in DIASPORA_SURNAME_SET:
             surnames.append(custom_kw.capitalize())
@@ -55,9 +68,10 @@ class UKCompaniesHouseSource(BaseLeadSource):
                     break
         
         if not surnames:
-            surnames = UK_SURNAME_VECTORS[:8]
+            # Dynamic random sampling across 60+ authentic surnames
+            surnames = random.sample(UK_SURNAME_VECTORS, min(len(UK_SURNAME_VECTORS), 8))
 
-        log.info("[UK Companies House] Searching %d surnames across Companies House", len(surnames))
+        log.info("[UK Companies House] Searching %d surnames across Companies House: %s", len(surnames), surnames[:6])
 
         results = []
         seen = set()
@@ -83,7 +97,8 @@ class UKCompaniesHouseSource(BaseLeadSource):
     async def _search_officers(self, client: httpx.AsyncClient, surname: str) -> List[Dict[str, Any]]:
         results = []
         try:
-            url = f"https://find-and-update.company-information.service.gov.uk/search/officers?q={urllib.parse.quote(surname)}"
+            page = random.choice([1, 2])
+            url = f"https://find-and-update.company-information.service.gov.uk/search/officers?q={urllib.parse.quote(surname)}&page={page}"
             resp = await client.get(url)
             if resp.status_code != 200:
                 log.debug("Companies House returned %d for %s", resp.status_code, surname)
@@ -92,7 +107,7 @@ class UKCompaniesHouseSource(BaseLeadSource):
             soup = BeautifulSoup(resp.text, "html.parser")
             items = soup.find_all("li", class_="type-officer")
 
-            for item in items[:8]:
+            for item in items[:10]:
                 h3 = item.find("h3")
                 if not h3 or not h3.find("a"):
                     continue
@@ -139,58 +154,102 @@ class UKCompaniesHouseSource(BaseLeadSource):
                                 company_name = comp_a.get_text(strip=True)
                                 company_url = f"https://find-and-update.company-information.service.gov.uk{comp_a.get('href', '')}"
                             
-                            # Check correspondence address from appointment page
+                            # Check correspondence address and nationality from appointment page
+                            nationality = ""
                             for dt, dd in zip(appt_soup.find_all("dt"), appt_soup.find_all("dd")):
-                                if "correspondence address" in dt.get_text().lower():
+                                dt_txt = dt.get_text().lower()
+                                if "correspondence address" in dt_txt:
                                     addr = dd.get_text(strip=True)
-                                    break
+                                elif "nationality" in dt_txt:
+                                    nationality = dd.get_text(strip=True)
                 except Exception:
                     pass
 
-                # Derive wealth tier based on verified appointment count
-                if appts_count >= 10:
-                    wealth_tier = "👑 Ultra HNW ($100M+)"
-                    net_worth = f"£{appts_count * 15}M+ ($100M+ Corporate Portfolio)"
-                    capacity = "$15M - $40M Prime Islamabad Institutional & Commercial"
-                elif appts_count >= 3:
-                    wealth_tier = "💎 Very HNW ($25M - $100M)"
-                    net_worth = f"£{appts_count * 6}M+ ($25M - $75M)"
-                    capacity = "$5M - $15M Commercial High-Rise & Luxury"
-                else:
-                    wealth_tier = "🏛️ High Net Worth ($5M - $25M)"
-                    net_worth = "£5M - £15M ($8M+)"
-                    capacity = "$1.5M - $4M CDA Sector F-6 / F-7 Luxury Residences"
+                # FILTER OUT LOW-VALUE MICRO-BUSINESSES (Curry shops, takeaways, auto traders, barber shops)
+                comp_lower = company_name.lower()
+                if any(bad_kw in comp_lower for bad_kw in LOW_VALUE_BUSINESS_KEYWORDS):
+                    log.debug("Skipping non-investor micro-business director: %s (%s)", clean_name, company_name)
+                    continue
 
                 clean_search = re.sub(r"^(Lord|Dr|Mr|Sir)\s+", "", clean_name, flags=re.I).strip()
                 linkedin_search = f"https://www.linkedin.com/search/results/people/?keywords={urllib.parse.quote(clean_search + ' ' + (company_name or 'UK Director'))}"
                 google_dork = f"https://www.google.com/search?q={urllib.parse.quote('site:linkedin.com/in \"' + clean_search + '\" UK')}"
 
+                # Transparent Pakistan Connection Evidence Evaluation
+                is_official_pakistani = "pakistan" in nationality.lower()
+                if is_official_pakistani:
+                    ev_type = "official_nationality"
+                    ev_conf = 100
+                    ev_desc = f"UK Companies House official filing verifies nationality: {nationality}. Documented officer with {appts_count} appointments."
+                    review_stat = "verified"
+                else:
+                    ev_type = "diaspora_director"
+                    ev_conf = 65
+                    ev_desc = f"UK Companies House active officer ({appts_count} appointments). Surname matches Pakistani diaspora. Stated nationality: {nationality or 'Unspecified'} (requires review)."
+                    review_stat = "needs_review"
+
+                evidence_item = {
+                    "evidence_type": ev_type,
+                    "description": ev_desc,
+                    "source_url": officer_url,
+                    "source_name": "UK Companies House Official Register (GOV.UK)",
+                    "confidence": ev_conf,
+                    "evidence_date": "2026",
+                }
+
                 cand = {
+                    # ── Section 9 Required Fields ──
                     "full_name": clean_name,
-                    "job_title": f"Managing Director & Shareholder ({appts_count} Appointments)" if appts_count > 1 else "Company Director",
+                    "occupation": "Managing Director / Business Founder",
+                    "employer": company_name,
+                    "country": "United Kingdom",
+                    "city": "London" if "london" in addr.lower() else ("Manchester" if "manchester" in addr.lower() else "Birmingham"),
+                    "pakistan_connection_evidence": [evidence_item],
+                    "personal_phone": None,
+                    "phone_type": "unknown",
+                    "phone_source_url": None,
+                    "phone_match_confidence": 0,
+                    "professional_phone": None,
+                    "personal_email": None,
+                    "professional_email": None,
+                    "email_source_url": None,
+                    "email_verified": False,
+                    "email_match_confidence": 0,
+                    "linkedin_url": None,
+                    "linkedin_source_url": None,
+                    "linkedin_identity_match": "unknown",
+                    "linkedin_match_confidence": 0,
+                    "evidence_urls": [officer_url] + ([company_url] if company_url else []),
+                    "source_names": ["UK Companies House Public Register"],
+                    "last_verified": "2026-10",
+                    "review_status": review_stat,
+                    "opt_out": False,
+
+                    # ── Transparent Professional Indicators ──
+                    "job_title": f"Managing Director ({appts_count} Appointments)" if appts_count > 1 else "Company Director",
                     "profession": "CEO / Managing Director",
                     "company": company_name,
-                    "company_website": company_url,
+                    # Do NOT set company_website to Companies House URLs — those are
+                    # registry pages, not emailable company domains (wastes Hunter/Tomba credits).
+                    "company_website": "",
                     "company_source_url": company_url or officer_url,
                     "current_country": "United Kingdom",
                     "current_city": "London" if "london" in addr.lower() else ("Manchester" if "manchester" in addr.lower() else "Birmingham"),
                     "company_size": "50-250" if appts_count < 5 else "500+",
-                    "professional_profile_url": linkedin_search,
+                    "professional_profile_url": "",
                     "linkedin_search_url": linkedin_search,
                     "google_profile_url": google_dork,
                     "public_email": "",
                     "public_phone": "",
-                    "phone_source_url": officer_url,
-                    "email_source_url": officer_url,
-                    "source_urls": [officer_url] + ([company_url] if company_url else []),
-                    "source_types": ["UK Companies House Public Register", "Verified Director Appointments"],
-                    "wealth_tier": wealth_tier,
-                    "estimated_net_worth": net_worth,
-                    "investment_capacity": capacity,
+                    "phone_source_url": "",
+                    "email_source_url": "",
+                    "wealth_tier": "High Net Worth Professional (Corporate Director)",
+                    "estimated_net_worth": f"{appts_count} UK Corporate Appointments",
+                    "investment_capacity": "Capital Market Prospect",
                     "wealth_source": f"Director of {company_name} ({appts_count} documented Companies House appointments)",
-                    "pakistan_real_estate_target": "Islamabad Blue Area Commercial Towers & CDA Sector F-6 / F-7 Luxury Mansions",
-                    "evidence_summary": f"UK Companies House verified officer ({appts_count} appointments). {f'Born: {birth_date}. ' if birth_date else ''}Registered address: {addr}. Verified public filings.",
-                    "notes": f"Officer URL: {officer_url}. Appointments: {appts_count}. Primary company: {company_name}. Address: {addr}.",
+                    "pakistan_real_estate_target": "Islamabad Blue Area Commercial & CDA Prime Sectors",
+                    "evidence_summary": ev_desc,
+                    "notes": f"Officer URL: {officer_url}. Appointments: {appts_count}. Primary company: {company_name}. Nationality: {nationality or 'N/A'}.",
                     "lead_status": "New",
                 }
                 results.append(cand)

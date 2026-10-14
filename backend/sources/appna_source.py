@@ -162,35 +162,69 @@ class APPNALeadSource(BaseLeadSource):
         linkedin_search = f"https://www.linkedin.com/search/results/people/?keywords={urllib.parse.quote(clean_name + ' MD ' + (clean_region or 'APPNA'))}"
         google_dork = f"https://www.google.com/search?q={urllib.parse.quote('\"' + clean_name + '\" MD ' + (clean_region or 'APPNA'))}"
 
-        wealth_tier = "💎 Very HNW ($25M - $100M)" if "President" in role or "Board" in role else "🏛️ High Net Worth ($5M - $25M)"
-        net_worth = "$15M - $40M+" if "President" in role else "$8M - $20M+"
-        capacity = "$3M - $8M Prime Islamabad CDA Mansions" if "President" in role else "$1.5M - $4M"
+        full_display_name = f"{clean_name}, MD"
+        employer_name = f"Association of Physicians of Pakistani Descent of North America (APPNA) — {clean_region or 'USA'}"
+
+        evidence_item = {
+            "evidence_type": "association_leadership",
+            "source_type": "medical_association",
+            "description": f"Verified leadership role in Association of Physicians of Pakistani Descent of North America (APPNA): {role} ({clean_region or 'National'}). Documented on official public association register.",
+            "source_url": source_url,
+            "evidence_url": source_url,
+            "source_name": "APPNA Leadership Register",
+            "confidence": 100,
+            "evidence_date": "2026",
+        }
 
         return {
-            "full_name": f"{clean_name}, MD",
+            # ── Section 9 Required Fields ──
+            "full_name": full_display_name,
+            "occupation": "Doctor / Consultant Physician",
+            "employer": employer_name,
+            "country": country,
+            "city": city,
+            "pakistan_connection_evidence": [evidence_item],
+            "personal_phone": None,
+            "phone_type": "unknown",
+            "phone_source_url": None,
+            "phone_match_confidence": 0,
+            "professional_phone": None,
+            "personal_email": None,
+            "professional_email": None,
+            "email_source_url": None,
+            "email_verified": False,
+            "email_match_confidence": 0,
+            "linkedin_url": None,
+            "linkedin_source_url": None,
+            "linkedin_identity_match": "unknown",
+            "linkedin_match_confidence": 0,
+            "evidence_urls": [source_url],
+            "source_names": ["APPNA Official Leadership Directory"],
+            "last_verified": "2026-10",
+            "review_status": "verified",
+            "opt_out": False,
+
+            # ── Transparent Professional Indicators (not unsubstantiated wealth) ──
             "job_title": job_title,
-            "profession": "Doctor / Consultant Surgeon",
-            "company": f"Association of Physicians of Pakistani Descent of North America (APPNA) — {clean_region or 'USA'}",
-            "company_website": "https://appna.org",
+            "profession": "Doctor / Consultant Physician",
+            "company": employer_name,
+            # Do not set registry hosts as company_website (wastes email-finder credits)
+            "company_website": "",
             "company_source_url": source_url,
             "current_country": country,
             "current_city": city,
             "company_size": "5000+ Physicians",
-            "professional_profile_url": linkedin_search,
+            "professional_profile_url": "",
             "linkedin_search_url": linkedin_search,
             "google_profile_url": google_dork,
             "public_email": "",
             "public_phone": "",
-            "phone_source_url": source_url,
-            "email_source_url": source_url,
-            "source_urls": [source_url],
-            "source_types": ["APPNA Official Leadership Directory", "Verified Medical Association Register"],
-            "wealth_tier": wealth_tier,
-            "estimated_net_worth": net_worth,
-            "investment_capacity": capacity,
-            "wealth_source": f"Executive physician leader & private practice in North America ({clean_region or 'USA'})",
-            "pakistan_real_estate_target": "CDA Sector F-6 / F-7 Luxury Mansions & Blue Area Commercial High-Rise",
-            "evidence_summary": f"Verified Pakistani-American physician leader. Role: {role} ({clean_region or 'National'}). Documented on official APPNA register.",
+            "wealth_tier": "High Net Worth Professional (Physician Leader)",
+            "estimated_net_worth": "Professional Physician Tier",
+            "investment_capacity": "Capital Market Prospect",
+            "wealth_source": f"Executive physician leader ({role}) in {clean_region or 'North America'}",
+            "pakistan_real_estate_target": "Islamabad CDA Sectors & Commercial Capital Opportunities",
+            "evidence_summary": f"Verified Pakistani diaspora physician leader on official APPNA register. Role: {role} ({clean_region or 'National'}).",
             "notes": f"Discovered on APPNA registry: {source_url}. Region: {clean_region}. Leadership title: {role}.",
             "lead_status": "New",
         }

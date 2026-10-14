@@ -6,8 +6,32 @@ import urllib.parse
 from typing import Dict, Any, List, Optional, Tuple
 import httpx
 from bs4 import BeautifulSoup
-
 log = logging.getLogger(__name__)
+
+_people_search_enricher = None
+_linkedin_finder = None
+_commercial_enricher = None
+
+def _get_people_search_enricher():
+    global _people_search_enricher
+    if _people_search_enricher is None:
+        from sources.people_search_source import PeopleSearchEnricher
+        _people_search_enricher = PeopleSearchEnricher()
+    return _people_search_enricher
+
+def _get_linkedin_finder():
+    global _linkedin_finder
+    if _linkedin_finder is None:
+        from sources.linkedin_finder import GenuineLinkedInFinder
+        _linkedin_finder = GenuineLinkedInFinder()
+    return _linkedin_finder
+
+def _get_commercial_enricher():
+    global _commercial_enricher
+    if _commercial_enricher is None:
+        from sources.commercial_enricher import CommercialEnricher
+        _commercial_enricher = CommercialEnricher()
+    return _commercial_enricher
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -274,72 +298,106 @@ async def deep_enrich_person(lead_dict: Dict[str, Any]) -> Dict[str, Any]:
     """
     Enriches a person's profile with verified LinkedIn URL, personal/business phone,
     and email. Attaches exact public source URLs for every finding.
+    Strictly enforces Free-Only mode policy and Section 9 schema.
     """
     name = lead_dict.get("full_name", "")
-    company = lead_dict.get("company", "")
-    country = lead_dict.get("current_country", "")
+    company = lead_dict.get("company", "") or lead_dict.get("employer", "")
+    country = lead_dict.get("current_country", "") or lead_dict.get("country", "")
+    city = lead_dict.get("current_city", "") or lead_dict.get("city", "")
+    occupation = lead_dict.get("occupation", "") or lead_dict.get("job_title", "")
     website = lead_dict.get("company_website", "")
 
-    # 1. Run OSINT Contact Dorking
-    dork_info = await dork_contact_search(name=name, company=company, country=country)
+    # 1. Genuine LinkedIn Profile Discovery (No guessing slugs)
+    if not lead_dict.get("linkedin_url"):
+        try:
+            finder = _get_linkedin_finder()
+            li_res = await finder.find_profile(
+                full_name=name,
+                city=city,
+                country=country,
+                employer=company,
+                occupation=occupation
+            )
+            if li_res.get("linkedin_url"):
+                lead_dict["linkedin_url"] = li_res["linkedin_url"]
+                lead_dict["linkedin_source_url"] = li_res["linkedin_source_url"]
+                lead_dict["linkedin_identity_match"] = li_res["linkedin_identity_match"]
+                lead_dict["linkedin_match_confidence"] = li_res["linkedin_match_confidence"]
+                lead_dict["professional_profile_url"] = li_res["linkedin_url"]
+                lead_dict["personal_linkedin_verified"] = li_res["linkedin_identity_match"] == "verified"
+        except Exception as li_err:
+            log.debug("LinkedIn discovery skipped for %s: %s", name, li_err)
 
-    # 2. If website available or found, crawl it
-    if website or dork_info.get("website"):
-        web_contacts = await crawl_website_for_contacts(website or dork_info.get("website"))
-        for p in web_contacts.get("phones", []):
-            if p not in dork_info["phones"]:
-                dork_info["phones"].append(p)
-                if not dork_info.get("phone_source_url"):
-                    dork_info["phone_source_url"] = web_contacts.get("phone_source_url", "")
-        for e in web_contacts.get("emails", []):
-            if e not in dork_info["emails"]:
-                dork_info["emails"].append(e)
-                if not dork_info.get("email_source_url"):
-                    dork_info["email_source_url"] = web_contacts.get("email_source_url", "")
+    # 2. Commercial APIs only if user opted in (use_hunter / use_tomba / use_apollo on payload)
+    try:
+        comm_enricher = _get_commercial_enricher()
+        lead_dict = await comm_enricher.enrich_candidate(
+            lead_dict,
+            allow_hunter=bool(lead_dict.get("use_hunter", False)),
+            allow_tomba=bool(lead_dict.get("use_tomba", False)),
+            allow_apollo=bool(lead_dict.get("use_apollo", False)),
+        )
+    except Exception as comm_err:
+        log.debug("Commercial enricher skipped for %s: %s", name, comm_err)
 
-    # 3. Update lead dict
-    if not lead_dict.get("professional_profile_url") and dork_info.get("linkedin_url"):
-        lead_dict["professional_profile_url"] = dork_info["linkedin_url"]
+    # 3. People Search Directory Enrichment (FastPeopleSearch for US, 192.com dorks for UK)
+    try:
+        enricher = _get_people_search_enricher()
+        lead_dict = await enricher.enrich(lead_dict)
+        log.info("People search enrichment completed for %s", name)
+    except Exception as e:
+        log.debug("People search enrichment skipped for %s: %s", name, e)
 
-    if dork_info.get("linkedin_url") and dork_info["linkedin_url"] not in lead_dict.get("source_urls", []):
-        lead_dict.setdefault("source_urls", []).append(dork_info["linkedin_url"])
+    # 4. OSINT Contact Dorking (only if personal contact missing)
+    if not lead_dict.get("personal_phone") or not lead_dict.get("personal_email"):
+        dork_info = await dork_contact_search(name=name, company=company, country=country)
+        if dork_info.get("linkedin_url") and not lead_dict.get("linkedin_url"):
+            lead_dict["linkedin_url"] = dork_info["linkedin_url"]
+            lead_dict["professional_profile_url"] = dork_info["linkedin_url"]
+            lead_dict["linkedin_identity_match"] = "needs_review"
+            lead_dict["linkedin_match_confidence"] = 70
+        if dork_info.get("phones") and not lead_dict.get("professional_phone") and not lead_dict.get("personal_phone"):
+            lead_dict["professional_phone"] = dork_info["phones"][0]
+            lead_dict["phone_source_url"] = dork_info.get("phone_source_url", "")
+        if dork_info.get("emails") and not lead_dict.get("professional_email") and not lead_dict.get("personal_email"):
+            lead_dict["professional_email"] = dork_info["emails"][0]
+            lead_dict["email_source_url"] = dork_info.get("email_source_url", "")
 
-    for u in dork_info.get("discovered_urls", []):
-        if u not in lead_dict.get("source_urls", []):
-            lead_dict.setdefault("source_urls", []).append(u)
+    # 5. Double-check all contact channels
+    from contact_validator import double_check_lead_contacts
+    lead_dict = double_check_lead_contacts(lead_dict)
 
-    if not lead_dict.get("public_phone") and dork_info.get("phones"):
-        lead_dict["public_phone"] = dork_info["phones"][0]
-        lead_dict["phone_source_url"] = dork_info.get("phone_source_url", "")
+    # 6. Normalize Section 9 fields and legacy properties
+    lead_dict["country"] = country
+    lead_dict["city"] = city
+    lead_dict["employer"] = company
+    lead_dict["occupation"] = occupation
+    lead_dict.setdefault("pakistan_connection_evidence", [])
+    lead_dict.setdefault("review_status", "needs_review")
+    lead_dict.setdefault("opt_out", False)
 
-    if not lead_dict.get("public_email") and dork_info.get("emails"):
-        lead_dict["public_email"] = dork_info["emails"][0]
-        lead_dict["email_source_url"] = dork_info.get("email_source_url", "")
+    if lead_dict.get("personal_phone"):
+        digits_only = re.sub(r"\D", "", lead_dict["personal_phone"])
+        lead_dict["whatsapp_number"] = digits_only
+        lead_dict["has_whatsapp"] = len(digits_only) >= 9
+        lead_dict["public_phone"] = lead_dict["personal_phone"]
+    elif lead_dict.get("professional_phone"):
+        lead_dict["public_phone"] = lead_dict["professional_phone"]
+        lead_dict["whatsapp_number"] = ""
+        lead_dict["has_whatsapp"] = False
+    else:
+        lead_dict["public_phone"] = ""
+        lead_dict["whatsapp_number"] = ""
+        lead_dict["has_whatsapp"] = False
 
-    # Ensure source URLs are attached to evidence items
-    evidence_list = lead_dict.get("evidence_list", [])
-    if lead_dict.get("public_phone") and lead_dict.get("phone_source_url"):
-        evidence_list.append({
-            "category": "contact_reachability",
-            "points": 25,
-            "description": f"Verified direct phone number {lead_dict['public_phone']} found at public source",
-            "source_url": lead_dict["phone_source_url"],
-            "source_type": "Public Directory / Contact Registry",
-            "evidence_date": lead_dict.get("collection_date", "")
-        })
+    if lead_dict.get("personal_email"):
+        lead_dict["public_email"] = lead_dict["personal_email"]
+    elif lead_dict.get("professional_email"):
+        lead_dict["public_email"] = lead_dict["professional_email"]
+    else:
+        lead_dict["public_email"] = ""
 
-    if lead_dict.get("public_email") and lead_dict.get("email_source_url"):
-        evidence_list.append({
-            "category": "contact_reachability",
-            "points": 15,
-            "description": f"Verified public email {lead_dict['public_email']} discovered at source",
-            "source_url": lead_dict["email_source_url"],
-            "source_type": "Corporate Contact / Public Profile",
-            "evidence_date": lead_dict.get("collection_date", "")
-        })
-
-    lead_dict["evidence_list"] = evidence_list
-    lead_dict["phone_found"] = bool(lead_dict.get("public_phone"))
-    lead_dict["email_found"] = bool(lead_dict.get("public_email"))
+    lead_dict["phone_found"] = bool(lead_dict.get("personal_phone") or lead_dict.get("professional_phone"))
+    lead_dict["email_found"] = bool(lead_dict.get("personal_email") or lead_dict.get("professional_email"))
 
     return lead_dict

@@ -27,15 +27,25 @@ JUNK_KEYWORDS = {
     "births", "deaths", "facts", "trivia", "quiz", "century", "daily", "quotes", "quotations", "this"
 }
 
-# Known diaspora surnames and prefixes for validation
+# Known diaspora surnames and prefixes for validation (comprehensive across all regions of Pakistan)
 DIASPORA_SURNAME_SET = {
-    "khan", "malik", "chaudhry", "chaudhary", "qureshi", "siddiqui", "ahmed", "ahmad",
+    "khan", "malik", "chaudhry", "chaudhary", "qureshi", "siddiqui", "siddique", "ahmed", "ahmad",
     "shah", "butt", "dar", "baig", "beg", "mirza", "sheikh", "shaikh", "tariq", "iqbal",
     "hussain", "husain", "ali", "babar", "anwar", "farooq", "baqir", "dawood", "sheikha",
     "allana", "shroff", "khalid", "masood", "rao", "sherwani", "akeel", "rahman", "rehman",
-    "choudrey", "mussarat", "niazi", "abbasi", "gillani", "gilani", "naqvi", "rizvi",
+    "choudrey", "choudhury", "mussarat", "niazi", "abbasi", "gillani", "gilani", "naqvi", "rizvi",
     "bhatti", "cheema", "tarar", "wattoo", "bajwa", "rana", "kasuri", "durrani", "soomro",
-    "zardari", "bhutto", "leghari", "jatoi", "khoso", "mangi", "talpur", "memon", "laghari"
+    "zardari", "bhutto", "leghari", "jatoi", "khoso", "mangi", "talpur", "memon", "laghari",
+    "mansha", "saigol", "tabba", "monnoo", "lakhani", "habib", "hashwani", "cowasjee", "alnoor",
+    "dewan", "bawany", "vohra", "chundrigar", "chandio", "junejo", "magsi", "mengal", "marri",
+    "bugti", "rind", "zehri", "bizenjo", "achakzai", "kakar", "yousafzai", "yousufzai", "afridi",
+    "khattak", "bangash", "shinwari", "orakzai", "mahsud", "wazir", "burki", "alizai", "sadozai",
+    "swati", "tanoli", "jadoon", "tareen", "haroon", "alvi", "arif", "aslam", "ashraf", "azhar",
+    "bilal", "ghaffar", "ghafoor", "hameed", "haris", "iftikhar", "jahangir", "javed", "kamran",
+    "khurram", "latif", "liaquat", "luqman", "mansoor", "munir", "mushtaq", "nadeem", "noman",
+    "pervez", "pervaiz", "rafiq", "saleem", "salman", "shafi", "shahid", "shakeel", "shahzad",
+    "sohail", "tahir", "umair", "usman", "waqas", "waseem", "younas", "yousaf", "yousuf", "zafar",
+    "zahid", "zia", "zubair", "bukhari", "gardezi", "tiwana", "noon", "khawaja", "paracha", "zaidi"
 }
 
 HONORIFICS_REGEX = re.compile(

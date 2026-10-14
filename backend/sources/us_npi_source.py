@@ -18,12 +18,15 @@ HEADERS = {
 # Key US States with largest Pakistani-American physician diaspora
 US_DIASPORA_STATES = ["TX", "CA", "NY", "IL", "FL", "NJ", "VA", "MI", "MD", "PA", "OH", "GA"]
 
+import random
+
 # Common Pakistani surnames to search across US NPI registry
 NPI_SURNAME_VECTORS = [
     "Khan", "Malik", "Chaudhry", "Qureshi", "Siddiqui", "Ahmed", "Shah", "Butt",
     "Mirza", "Sheikh", "Tariq", "Iqbal", "Hussain", "Dar", "Baig", "Rao",
     "Anwar", "Farooq", "Babar", "Masood", "Khalid", "Niazi", "Abbasi", "Cheema",
-    "Bhatti", "Naqvi", "Rizvi", "Rana", "Bajwa", "Memon"
+    "Bhatti", "Naqvi", "Rizvi", "Rana", "Bajwa", "Memon", "Tareen", "Haroon",
+    "Alvi", "Arif", "Aslam", "Ashraf", "Javed", "Kamran", "Munir", "Nadeem", "Saleem", "Zafar"
 ]
 
 
@@ -51,34 +54,34 @@ class USNPIDoctorSource(BaseLeadSource):
         # Check if medical profession requested or general search
         is_medical_intent = True
         if professions and not any(any(m in p.lower() for m in ["doctor", "physician", "surgeon", "health", "all"]) for p in professions):
-            # If user explicitly requested non-medical like "Property Developers", skip unless no results
             is_medical_intent = False
 
-        # Select surnames to search
+        # Select surnames to search - dynamic sampling across runs
         surnames_to_query = []
         if custom_kw and custom_kw.lower() in DIASPORA_SURNAME_SET:
             surnames_to_query.append(custom_kw.capitalize())
         elif custom_kw:
-            # Check if custom keyword has a surname
             for s in NPI_SURNAME_VECTORS:
                 if s.lower() in custom_kw.lower():
                     surnames_to_query.append(s)
                     break
         
         if not surnames_to_query:
-            surnames_to_query = NPI_SURNAME_VECTORS[:8]
+            surnames_to_query = random.sample(NPI_SURNAME_VECTORS, min(len(NPI_SURNAME_VECTORS), 6))
 
-        # Select target states
-        target_states = US_DIASPORA_STATES[:4]
+        # Select target states dynamically
+        target_states = random.sample(US_DIASPORA_STATES, min(len(US_DIASPORA_STATES), 3))
+        skip_offset = random.choice([0, 10, 20])
 
-        log.info("[US NPI] Searching %d surnames across states: %s", len(surnames_to_query), target_states)
+        log.info("[US NPI] Searching %d surnames across states %s (skip=%d): %s",
+                 len(surnames_to_query), target_states, skip_offset, surnames_to_query)
 
         results = []
         async with httpx.AsyncClient(headers=HEADERS, timeout=12) as client:
             tasks = []
             for surname in surnames_to_query[:5]:
-                for state in target_states[:3]:
-                    tasks.append(self._query_npi(client, surname, state))
+                for state in target_states:
+                    tasks.append(self._query_npi(client, surname, state, skip=skip_offset))
 
             group_results = await asyncio.gather(*tasks, return_exceptions=True)
             for res in group_results:
@@ -88,7 +91,7 @@ class USNPIDoctorSource(BaseLeadSource):
         log.info("[US NPI] Discovered %d authentic US physician candidates", len(results))
         return results[:limit]
 
-    async def _query_npi(self, client: httpx.AsyncClient, surname: str, state: str) -> List[Dict[str, Any]]:
+    async def _query_npi(self, client: httpx.AsyncClient, surname: str, state: str, skip: int = 0) -> List[Dict[str, Any]]:
         results = []
         try:
             url = (
@@ -97,6 +100,7 @@ class USNPIDoctorSource(BaseLeadSource):
                 f"&state={state}"
                 f"&enumeration_type=NPI-1"
                 f"&limit=10"
+                f"&skip={skip}"
             )
             resp = await client.get(url)
             if resp.status_code != 200:
@@ -186,8 +190,46 @@ class USNPIDoctorSource(BaseLeadSource):
             company_name = f"{clean_name} Medical Practice, {city}"
             full_addr_str = f"{street}, {city}, {state} {postal}, United States".strip(", ")
 
+            evidence_item = {
+                "evidence_type": "diaspora_medical_license",
+                "description": f"Licensed US Physician ({specialty}). Official CMS NPI #{npi_number}. Practice address: {full_addr_str}. Surname matches Pakistani diaspora healthcare directories.",
+                "source_url": npi_url,
+                "source_name": "US Federal CMS NPPES Registry",
+                "confidence": 70,
+                "evidence_date": "2026",
+            }
+
+            full_display_name = f"{clean_name}, {credential}" if credential else clean_name
+
             return {
-                "full_name": f"{clean_name}, {credential}" if credential else clean_name,
+                # ── Section 9 Required Fields ──
+                "full_name": full_display_name,
+                "occupation": f"Doctor / {specialty}",
+                "employer": company_name,
+                "country": "United States",
+                "city": city.title(),
+                "pakistan_connection_evidence": [evidence_item],
+                "personal_phone": None,
+                "phone_type": "clinic",
+                "phone_source_url": npi_url if clean_phone else None,
+                "phone_match_confidence": 0,
+                "professional_phone": clean_phone or None,
+                "personal_email": None,
+                "professional_email": None,
+                "email_source_url": None,
+                "email_verified": False,
+                "email_match_confidence": 0,
+                "linkedin_url": None,
+                "linkedin_source_url": None,
+                "linkedin_identity_match": "unknown",
+                "linkedin_match_confidence": 0,
+                "evidence_urls": [npi_url],
+                "source_names": ["US CMS NPPES Federal Provider Registry"],
+                "last_verified": "2026-10",
+                "review_status": "needs_review",
+                "opt_out": False,
+
+                # ── Transparent Professional Indicators ──
                 "job_title": job_title,
                 "profession": "Doctor / Consultant Surgeon",
                 "company": company_name,
@@ -195,24 +237,21 @@ class USNPIDoctorSource(BaseLeadSource):
                 "company_source_url": npi_url,
                 "current_country": "United States",
                 "current_city": city.title(),
-                "company_size": "10-50",
-                "professional_profile_url": linkedin_search,
+                "company_size": "Private Medical Practice",
+                "professional_profile_url": "",
                 "linkedin_search_url": linkedin_search,
                 "google_profile_url": google_dork,
                 "public_email": "",
                 "public_phone": clean_phone,
                 "phone_source_url": npi_url,
-                "email_source_url": "",
-                "whatsapp_number": whatsapp_num,
-                "has_whatsapp": bool(whatsapp_num and len(whatsapp_num) >= 10),
-                "source_urls": [npi_url],
-                "source_types": ["US CMS NPPES Federal Provider Registry", "Verified US Medical License"],
-                "wealth_tier": wealth_tier,
-                "estimated_net_worth": net_worth,
-                "investment_capacity": capacity,
+                "whatsapp_number": "",
+                "has_whatsapp": False,  # Practice/clinic phone is not an individual mobile WhatsApp
+                "wealth_tier": "High Net Worth Professional (Licensed Physician)",
+                "estimated_net_worth": "Professional Medical Specialist Tier",
+                "investment_capacity": "Capital Market Prospect",
                 "wealth_source": f"Licensed US {specialty} practicing in {city}, {state} (NPI #{npi_number})",
-                "pakistan_real_estate_target": "CDA Sector F-6 / F-7 Luxury Mansions & Blue Area Islamabad Commercial",
-                "evidence_summary": f"Verified licensed US Physician ({specialty}). Official CMS NPI #{npi_number}. Practice address: {full_addr_str}. Direct public practice phone: {clean_phone}.",
+                "pakistan_real_estate_target": "CDA Sector F-6 / F-7 Luxury Residences & Islamabad Commercial",
+                "evidence_summary": f"Licensed US Physician ({specialty}). CMS NPI #{npi_number}. Clinic address: {full_addr_str}. Clinic phone: {clean_phone}.",
                 "notes": f"NPI #{npi_number}. Primary specialty: {specialty}. State license: {state}. Verified federal healthcare provider.",
                 "lead_status": "New",
             }

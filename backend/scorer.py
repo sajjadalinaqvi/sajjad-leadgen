@@ -32,15 +32,25 @@ PAK_ORGANIZATIONS = [
     r"pakistan association dubai", r"pad", r"british pakistani foundation"
 ]
 
-# Islamabad Real Estate Sectors & Locations
-ISLAMABAD_LOCATIONS = [
-    r"islamabad", r"rawalpindi", r"cda", r"blue area",
-    r"dha islamabad", r"dha phase", r"bahria town islamabad", r"bahria town rawalpindi",
-    r"gulberg greens", r"eighteen islamabad", r"park view city",
-    r"chak shahzad", r"f-6", r"f-7", r"f-8", r"f-10", r"f-11",
-    r"e-7", r"e-11", r"g-11", r"g-13", r"b-17", r"d-12",
-    r"new islamabad", r"mumtaz city", r"top city"
+# Pakistan Real Estate Sectors & Urban Investment Locations (Across all major cities)
+PAKISTAN_REAL_ESTATE_LOCATIONS = [
+    # Islamabad & Rawalpindi
+    r"islamabad", r"rawalpindi", r"cda", r"blue area", r"dha islamabad", r"dha phase",
+    r"bahria town islamabad", r"bahria town rawalpindi", r"gulberg greens", r"eighteen islamabad",
+    r"park view city", r"chak shahzad", r"f-6", r"f-7", r"f-8", r"f-10", r"f-11",
+    r"e-7", r"e-11", r"g-11", r"g-13", r"b-17", r"d-12", r"new islamabad", r"mumtaz city", r"top city",
+    # Lahore
+    r"lahore", r"dha lahore", r"gulberg", r"lake city", r"bahria town lahore", r"model town",
+    r"johar town", r"raiwind", r"prism 9", r"dha phase 5", r"dha phase 6", r"dha phase 8",
+    # Karachi
+    r"karachi", r"dha karachi", r"clifton", r"bahria town karachi", r"pechs", r"creek vistas",
+    r"emaar karachi", r"bath island", r"kda",
+    # Gwadar
+    r"gwadar", r"gwadar port", r"marine drive", r"sangar housing",
+    # Other Prime Commercial & Urban Hubs
+    r"faisalabad", r"multan", r"peshawar", r"sialkot", r"gujranwala", r"abbottabad"
 ]
+ISLAMABAD_LOCATIONS = PAKISTAN_REAL_ESTATE_LOCATIONS
 
 # High-Seniority Financial / Professional Roles
 FOUNDER_ROLES = [
@@ -235,7 +245,7 @@ def calculate_lead_score(lead_data: Dict[str, Any]) -> ScoringBreakdown:
             evidence_list.append(EvidenceItem(
                 category="islamabad_connection",
                 points=15,
-                description=f"Documented property, family, or business interest linked to Islamabad/Rawalpindi ({loc.title()}).",
+                description=f"Documented property, investment, or business interest linked to prime Pakistani real estate hub ({loc.title()}).",
                 source_type="Public Statement / Press / Directory"
             ))
             break

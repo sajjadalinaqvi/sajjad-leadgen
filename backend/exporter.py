@@ -11,18 +11,33 @@ FIELDS = ["name", "category", "address", "city", "country", "phone", "website", 
 DORK_FIELDS = ["title", "url", "email", "phone", "address", "city", "country", "description"]
 
 OVERSEAS_LEAD_FIELDS = [
+    # ── Section 9 Priority & Identity Fields ──
     "full_name",
-    "current_country",
-    "current_city",
-    "profession",
-    "job_title",
-    "seniority",
-    "company",
-    "company_website",
-    "company_size",
-    "public_email",
-    "public_phone",
-    "email_verification_status",
+    "occupation",
+    "employer",
+    "country",
+    "city",
+    "personal_phone",
+    "phone_type",
+    "phone_match_confidence",
+    "phone_source_url",
+    "professional_phone",
+    "personal_email",
+    "professional_email",
+    "email_verified",
+    "email_match_confidence",
+    "email_source_url",
+    "linkedin_url",
+    "linkedin_identity_match",
+    "linkedin_match_confidence",
+    "linkedin_source_url",
+    "review_status",
+    "opt_out",
+    "last_verified",
+    "pakistan_connection_evidence",
+    "evidence_urls",
+    "source_names",
+    # ── Intelligence & CRM Scoring ──
     "total_lead_score",
     "score_category",
     "confidence",
@@ -32,12 +47,10 @@ OVERSEAS_LEAD_FIELDS = [
     "pakistan_investment_score",
     "islamabad_connection_score",
     "real_estate_intent_score",
+    "wealth_tier",
+    "estimated_net_worth",
     "evidence_summary",
-    "professional_profile_url",
-    "source_urls",
     "lead_status",
-    "do_not_contact",
-    "collection_date",
     "notes"
 ]
 
@@ -141,11 +154,37 @@ def to_overseas_dataframe(data: list[dict]) -> pd.DataFrame:
     processed = []
     for r in data:
         item = r.copy()
-        item["public_phone"] = clean_phone(r.get("public_phone", ""))
-        # Flatten source URLs list if needed
-        sources = r.get("source_urls", [])
-        if isinstance(sources, list):
-            item["source_urls"] = ", ".join(sources)
+        item["personal_phone"] = clean_phone(r.get("personal_phone", "") or "")
+        item["professional_phone"] = clean_phone(r.get("professional_phone", "") or "")
+        
+        # Format Pakistan connection evidence into readable summary
+        ev_items = r.get("pakistan_connection_evidence", [])
+        if isinstance(ev_items, list):
+            item["pakistan_connection_evidence"] = " | ".join(
+                [f"[{e.get('evidence_type', 'evidence')}] {e.get('description', '')} (conf: {e.get('confidence', 0)}%)" for e in ev_items if isinstance(e, dict)]
+            )
+        
+        # Flatten URLs and sources
+        ev_urls = r.get("evidence_urls", []) or r.get("source_urls", [])
+        if isinstance(ev_urls, list):
+            item["evidence_urls"] = ", ".join(ev_urls)
+            
+        src_names = r.get("source_names", []) or r.get("source_types", [])
+        if isinstance(src_names, list):
+            item["source_names"] = ", ".join(src_names)
+
+        # Fallbacks for missing Section 9 values
+        if not item.get("country") and item.get("current_country"):
+            item["country"] = item["current_country"]
+        if not item.get("city") and item.get("current_city"):
+            item["city"] = item["current_city"]
+        if not item.get("employer") and item.get("company"):
+            item["employer"] = item["company"]
+        if not item.get("occupation") and item.get("job_title"):
+            item["occupation"] = item["job_title"]
+        if not item.get("linkedin_url") and "linkedin.com/in/" in (item.get("professional_profile_url") or ""):
+            item["linkedin_url"] = item["professional_profile_url"]
+            
         processed.append(item)
     
     df = pd.DataFrame(processed)

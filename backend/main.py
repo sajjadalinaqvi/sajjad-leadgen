@@ -17,12 +17,14 @@ from database import (
     get_lead_by_id, query_leads, insert_lead_dict,
     update_lead_status, delete_lead_permanently,
     list_suppressions, add_to_suppression, remove_from_suppression,
-    list_audit_logs, get_crm_funnel_stats, log_audit_event
+    list_audit_logs, get_crm_funnel_stats, log_audit_event, set_lead_opt_out
 )
+import config
 from scorer import calculate_lead_score
 from compliance import check_duplicate_lead, is_contact_suppressed
 from sources.search_source import SearchEngineLeadSource
 from sources.import_source import ManualImportLeadSource
+from sources.people_api_adapter import PeopleAPIOrchestrator
 from scraper import scrape_google_maps
 from dorking import scrape_dork
 from exporter import (
@@ -44,8 +46,65 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from sources.hunter_adapter import HunterClient
+from sources.tomba_adapter import TombaClient
+from sources.apollo_adapter import ApolloClient
+
 search_source = SearchEngineLeadSource()
 import_source = ManualImportLeadSource()
+people_api_orchestrator = PeopleAPIOrchestrator()
+hunter_client = HunterClient()
+tomba_client = TombaClient()
+apollo_client = ApolloClient()
+
+
+class HunterFindEmailRequest(BaseModel):
+    first_name: str = ""
+    last_name: str = ""
+    full_name: str = ""
+    company: str = ""
+    domain: str = ""
+    linkedin_url: str = ""
+
+
+class HunterVerifyEmailRequest(BaseModel):
+    email: str
+
+
+class HunterDomainSearchRequest(BaseModel):
+    domain: str = ""
+    company: str = ""
+    type: str = "personal"
+    limit: int = 10
+
+
+class TombaFindEmailRequest(BaseModel):
+    first_name: str = ""
+    last_name: str = ""
+    full_name: str = ""
+    company: str = ""
+    domain: str = ""
+    linkedin_url: str = ""
+
+
+class TombaVerifyEmailRequest(BaseModel):
+    email: str
+
+
+class TombaDomainSearchRequest(BaseModel):
+    domain: str = ""
+    company: str = ""
+    limit: int = 10
+
+
+class ApolloPeopleMatchRequest(BaseModel):
+    first_name: str = ""
+    last_name: str = ""
+    full_name: str = ""
+    organization_name: str = ""
+    domain: str = ""
+    email: str = ""
+    linkedin_url: str = ""
 
 
 class ScrapeRequest(BaseModel):
@@ -79,7 +138,117 @@ async def global_error_handler(request, exc):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "ApexLead AI Intelligence Engine"}
+    return {
+        "status": "ok",
+        "service": "ApexLead AI Intelligence Engine",
+        "free_only_mode": config.FREE_ONLY_MODE
+    }
+
+
+@app.get("/system/config")
+async def get_system_configuration():
+    """
+    Returns real-time free-only mode policy status, confirmed monthly free quotas,
+    and provider enablement states.
+    """
+    return config.get_quota_status()
+
+
+# ── Hunter.io Official Integration Endpoints ─────────────────────────────────
+
+@app.get("/hunter/account")
+async def get_hunter_account():
+    """Returns live Hunter account profile, plan status, and credit counts."""
+    return await hunter_client.get_account_info()
+
+
+@app.post("/hunter/find-email")
+async def hunter_find_email(req: HunterFindEmailRequest):
+    """Finds verified email and contact info using Hunter Email Finder endpoint."""
+    return await hunter_client.find_email(
+        first_name=req.first_name,
+        last_name=req.last_name,
+        full_name=req.full_name,
+        company=req.company,
+        domain=req.domain,
+        linkedin_url=req.linkedin_url
+    )
+
+
+@app.post("/hunter/verify-email")
+async def hunter_verify_email(req: HunterVerifyEmailRequest):
+    """Verifies deliverability, MX records, and SMTP status using Hunter Email Verifier."""
+    return await hunter_client.verify_email(req.email)
+
+
+@app.post("/hunter/domain-search")
+async def hunter_domain_search(req: HunterDomainSearchRequest):
+    """Discovers professional contacts for an organization domain using Hunter Domain Search."""
+    return await hunter_client.domain_search(
+        domain=req.domain,
+        company=req.company,
+        type_=req.type,
+        limit=req.limit
+    )
+
+
+# ── Tomba.io Official Integration Endpoints ───────────────────────────────────
+
+@app.get("/tomba/account")
+async def get_tomba_account():
+    """Returns live Tomba account profile, plan, and credit usage via GET /me."""
+    return await tomba_client.get_account_info()
+
+
+@app.post("/tomba/find-email")
+async def tomba_find_email(req: TombaFindEmailRequest):
+    """Finds email from name + company/domain via Tomba Email Finder."""
+    return await tomba_client.find_email(
+        first_name=req.first_name,
+        last_name=req.last_name,
+        full_name=req.full_name,
+        company=req.company,
+        domain=req.domain,
+        linkedin_url=req.linkedin_url,
+    )
+
+
+@app.post("/tomba/verify-email")
+async def tomba_verify_email(req: TombaVerifyEmailRequest):
+    """Verifies email deliverability via Tomba Email Verifier."""
+    return await tomba_client.verify_email(req.email)
+
+
+@app.post("/tomba/domain-search")
+async def tomba_domain_search(req: TombaDomainSearchRequest):
+    """Lists published emails for a company domain via Tomba Domain Search."""
+    return await tomba_client.domain_search(
+        domain=req.domain,
+        company=req.company,
+        limit=req.limit,
+    )
+
+
+# ── Apollo.io Official Integration Endpoints ──────────────────────────────────
+
+@app.get("/apollo/profile")
+async def get_apollo_profile():
+    """Validates Apollo API key via GET /users/api_profile."""
+    return await apollo_client.get_api_profile()
+
+
+@app.post("/apollo/people-match")
+async def apollo_people_match(req: ApolloPeopleMatchRequest):
+    """Enrich a person via Apollo POST /people/match."""
+    return await apollo_client.people_match(
+        first_name=req.first_name,
+        last_name=req.last_name,
+        full_name=req.full_name,
+        organization_name=req.organization_name,
+        domain=req.domain,
+        email=req.email,
+        linkedin_url=req.linkedin_url,
+    )
 
 
 # ── Overseas Pakistani Investor Leads API ─────────────────────────────────────
@@ -89,19 +258,34 @@ async def search_overseas_candidates(req: CandidateSearchRequest):
     """
     Discovers candidate leads from permitted diaspora & executive search discovery,
     scoring each on Pakistan connection, overseas status, and real estate investment intent.
+    Enforces Section 9 schema and strict free-only policy.
     """
     try:
-        log.info("Running diaspora search for countries=%s, professions=%s", req.countries, req.professions)
+        log.info("Running diaspora search for countries=%s, professions=%s, limit=%d", req.countries, req.professions, req.limit)
         candidates = await search_source.discover_candidates(req.dict())
         
-        # Filter by min_score if requested
+        # 1. Filter by min_score if requested
         filtered = [c for c in candidates if c.get("total_lead_score", 0) >= req.min_score]
-        log.info("Search finished: %d raw candidates, %d above min_score (%d)", len(candidates), len(filtered), req.min_score)
+        
+        # 2. Filter by review_status if requested
+        if req.review_status_filter and req.review_status_filter != "All":
+            filtered = [c for c in filtered if c.get("review_status") == req.review_status_filter]
+
+        # 3. Filter by require_contact_found if requested
+        if req.require_contact_found:
+            filtered = [c for c in filtered if c.get("personal_phone") or c.get("personal_email") or c.get("linkedin_url")]
+
+        # 4. Filter by require_pakistan_evidence if requested
+        if req.require_pakistan_evidence:
+            filtered = [c for c in filtered if c.get("pakistan_connection_evidence") and len(c.get("pakistan_connection_evidence")) > 0]
+            
+        log.info("Search finished: %d raw candidates, %d returned after filters", len(candidates), len(filtered))
         
         return {
             "results": filtered,
             "count": len(filtered),
-            "raw_count": len(candidates)
+            "raw_count": len(candidates),
+            "free_only_mode": config.FREE_ONLY_MODE
         }
     except Exception as e:
         log.error("Overseas search failed: %s", traceback.format_exc())
@@ -230,6 +414,26 @@ async def delete_lead(lead_id: str):
     return {"status": "ok", "deleted_id": lead_id}
 
 
+@app.post("/leads/{lead_id}/opt-out")
+async def opt_out_lead(lead_id: str):
+    """
+    Opt-out and suppression workflow:
+    1. Sets opt_out = 1, do_not_contact = 1, lead_status = 'Do Not Contact'
+    2. Registers email and phone into suppression_list to permanently block outreach
+    3. Records audit log
+    """
+    lead = get_lead_by_id(lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    success = set_lead_opt_out(lead_id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to process opt-out")
+
+    log_audit_event(lead_id, "opt_out", {"lead_id": lead_id, "name": lead.get("full_name")})
+    return {"status": "ok", "lead_id": lead_id, "opt_out": True, "review_status": "opt_out"}
+
+
 @app.post("/leads/enrich-candidate")
 async def enrich_candidate_contacts(candidate: dict):
     """
@@ -278,8 +482,8 @@ async def get_pipeline_funnel():
 
 @app.get("/compliance/suppression")
 async def get_suppression_records():
-    """List all suppressed contacts / DNC entries."""
-    return {"suppressions": list_suppressions()}
+    items = list_suppressions()
+    return {"suppressions": items, "records": items, "count": len(items)}
 
 
 @app.post("/compliance/suppress")
@@ -469,3 +673,12 @@ async def export_dork_direct(fmt: str, req: DorkRequest):
     except Exception as e:
         log.error("Direct export dork failed: %s", traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+
+@app.get("/people-apis")
+async def get_people_apis():
+    """Returns the catalog of external People Extraction APIs (Apollo, Proxycurl, PDL, ContactOut, RocketReach)."""
+    return {
+        "apis": people_api_orchestrator.get_api_catalog(),
+        "total": len(people_api_orchestrator.get_api_catalog())
+    }

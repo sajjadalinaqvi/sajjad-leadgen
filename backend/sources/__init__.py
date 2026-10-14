@@ -1,7 +1,7 @@
 from .base import BaseLeadSource
 from .search_source import SearchEngineLeadSource
 from .import_source import ManualImportLeadSource
-from .apollo_adapter import ApolloStructuredAdapter
+from .apollo_adapter import ApolloStructuredAdapter, ApolloClient
 from .uk_companies_source import UKCompaniesHouseSource
 from .us_npi_source import USNPIDoctorSource
 from .appna_source import APPNALeadSource
@@ -12,6 +12,7 @@ __all__ = [
     "SearchEngineLeadSource",
     "ManualImportLeadSource",
     "ApolloStructuredAdapter",
+    "ApolloClient",
     "UKCompaniesHouseSource",
     "USNPIDoctorSource",
     "APPNALeadSource",

@@ -42,6 +42,33 @@ class EmailVerificationStatus(str, Enum):
     UNKNOWN = "Unknown"
 
 
+class ReviewStatus(str, Enum):
+    VERIFIED = "verified"
+    NEEDS_REVIEW = "needs_review"
+    REJECTED = "rejected"
+    OPT_OUT = "opt_out"
+
+
+class PhoneType(str, Enum):
+    MOBILE = "mobile"
+    DIRECT = "direct"
+    OFFICE = "office"
+    CLINIC = "clinic"
+    SWITCHBOARD = "switchboard"
+    UNKNOWN = "unknown"
+
+
+class PakistanEvidenceItem(BaseModel):
+    evidence_type: str = Field(default="association_leadership", description="e.g. association_leadership, medical_graduation, official_nationality, self_described")
+    source_type: Optional[str] = Field(default=None, description="Alias for source/evidence type")
+    description: str = Field(..., description="Human-readable fact or citation")
+    source_url: Optional[str] = Field(default="", description="Legitimate public source URL")
+    evidence_url: Optional[str] = Field(default=None, description="Legitimate public source URL")
+    source_name: Optional[str] = Field(default="Public Registry", description="Name of official source")
+    confidence: Any = Field(default=100, description="Confidence score 0-100 or 0.0-1.0")
+    evidence_date: Optional[str] = Field(default="", description="Date of observation")
+
+
 class EvidenceItem(BaseModel):
     category: str = Field(..., description="Category: pakistan_connection, financial_strength, pakistan_investment, islamabad_intent")
     points: int = Field(default=0, description="Points awarded for this evidence")
@@ -68,7 +95,42 @@ class ScoringBreakdown(BaseModel):
 
 class Lead(BaseModel):
     id: Optional[str] = None
-    full_name: str
+    
+    # ── Section 9 Required Schema Fields ──────────────────────────────────────
+    full_name: Optional[str] = None
+    occupation: Optional[str] = None
+    employer: Optional[str] = None
+    country: Optional[str] = None
+    city: Optional[str] = None
+    pakistan_connection_evidence: List[PakistanEvidenceItem] = []
+    
+    # Priority Field 1: Personal Phone
+    personal_phone: Optional[str] = None
+    phone_type: str = "unknown"  # mobile, direct, office, clinic, switchboard, unknown
+    phone_source_url: Optional[str] = None
+    phone_match_confidence: Any = 0
+    professional_phone: Optional[str] = None
+    
+    # Priority Field 2: Personal Email (vs Professional Email)
+    personal_email: Optional[str] = None
+    professional_email: Optional[str] = None
+    email_source_url: Optional[str] = None
+    email_verified: bool = False
+    email_match_confidence: Any = 0
+    
+    # Priority Field 3: Genuine LinkedIn Profile URL
+    linkedin_url: Optional[str] = None
+    linkedin_source_url: Optional[str] = None
+    linkedin_identity_match: str = "unknown"  # verified, needs_review, not_found, unknown
+    linkedin_match_confidence: Any = 0
+    
+    evidence_urls: List[str] = []
+    source_names: List[str] = []
+    last_verified: Optional[str] = None
+    review_status: str = "needs_review"  # verified, needs_review, rejected, opt_out
+    opt_out: bool = False
+    
+    # ── Legacy & UI Compatibility Fields ──────────────────────────────────────
     first_name: Optional[str] = ""
     last_name: Optional[str] = ""
     current_country: str = ""
@@ -84,18 +146,16 @@ class Lead(BaseModel):
     professional_profile_url: Optional[str] = ""
     public_email: Optional[str] = ""
     public_phone: Optional[str] = ""
-    phone_source_url: Optional[str] = ""
-    email_source_url: Optional[str] = ""
     company_source_url: Optional[str] = ""
-    has_whatsapp: bool = True
+    has_whatsapp: bool = False
     whatsapp_number: Optional[str] = ""
     wealth_tier: Optional[str] = "High Net Worth ($5M - $25M)"
     estimated_net_worth: Optional[str] = "$10M+"
     investment_capacity: Optional[str] = "$1M - $5M Liquid"
     email_verification_status: EmailVerificationStatus = EmailVerificationStatus.UNKNOWN
     
-    # Intelligence & Scoring
-    pakistan_connection_status: str = "High" # High, Medium, Low, Unknown
+    # Scoring & Evidence Lists
+    pakistan_connection_status: str = "Unknown"
     pakistan_connection_score: int = 0
     overseas_status: str = "Outside Pakistan"
     overseas_status_score: int = 0
@@ -106,14 +166,17 @@ class Lead(BaseModel):
     total_lead_score: int = 0
     score_category: ScoreCategory = ScoreCategory.REJECT
     confidence: ConfidenceLevel = ConfidenceLevel.LOW
-    
     evidence_summary: Optional[str] = ""
     evidence_list: List[EvidenceItem] = []
     source_urls: List[str] = []
     source_types: List[str] = []
     collection_date: Optional[str] = None
-    last_verified: Optional[str] = None
     
+    # Contact Verification Badges
+    personal_email_verified: bool = False
+    personal_phone_verified: bool = False
+    personal_linkedin_verified: bool = False
+
     # CRM & Compliance
     contact_permission_status: str = "Public Source / Review Recommended"
     do_not_contact: bool = False
@@ -121,6 +184,8 @@ class Lead(BaseModel):
     lead_status: LeadStatus = LeadStatus.NEW
     rejection_reason: Optional[str] = ""
     notes: Optional[str] = ""
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 class CandidateSearchRequest(BaseModel):
@@ -132,8 +197,20 @@ class CandidateSearchRequest(BaseModel):
     wealth_tier: Optional[str] = "All"
     confidence: Optional[str] = "All"
     pakistan_connection_filter: Optional[str] = "All"
-    islamabad_intent_filter: Optional[str] = "All"
+    target_pakistan_city: Optional[str] = "All"  # All, Islamabad, Lahore, Karachi, Gwadar, Rawalpindi
     limit: int = 25
+    # Strict personal contact filters
+    require_phone: bool = False
+    require_email: bool = False
+    require_linkedin: bool = False
+    require_contact_found: bool = False
+    require_pakistan_evidence: bool = True
+    exclude_existing_crm: bool = True
+    review_status_filter: Optional[str] = "All"
+    # Commercial API opt-in (default OFF — only consume credits when user allows)
+    use_hunter: bool = False
+    use_tomba: bool = False
+    use_apollo: bool = False
 
 
 class LeadFilterRequest(BaseModel):

@@ -2,14 +2,22 @@ import sqlite3
 import json
 import uuid
 import os
+import re
 import logging
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple, Dict, Any
 
-from models import (
-    Lead, EvidenceItem, LeadStatus, ScoreCategory,
-    ConfidenceLevel, EmailVerificationStatus, AuditLogEntry
-)
+try:
+    from models import (
+        Lead, EvidenceItem, LeadStatus, ScoreCategory,
+        ConfidenceLevel, EmailVerificationStatus, AuditLogEntry
+    )
+except ImportError:
+    from backend.models import (
+        Lead, EvidenceItem, LeadStatus, ScoreCategory,
+        ConfidenceLevel, EmailVerificationStatus, AuditLogEntry
+    )
+
 
 log = logging.getLogger(__name__)
 
@@ -126,7 +134,7 @@ def init_db():
     existing_cols = [row["name"] for row in c.fetchall()]
     
     new_cols = [
-        ("has_whatsapp", "INTEGER DEFAULT 1"),
+        ("has_whatsapp", "INTEGER DEFAULT 0"),
         ("whatsapp_number", "TEXT"),
         ("wealth_tier", "TEXT DEFAULT 'High Net Worth ($5M - $25M)'"),
         ("estimated_net_worth", "TEXT DEFAULT '$10M+'"),
@@ -134,6 +142,28 @@ def init_db():
         ("phone_source_url", "TEXT"),
         ("email_source_url", "TEXT"),
         ("company_source_url", "TEXT"),
+        # Section 9 Required Lead Model Columns
+        ("occupation", "TEXT"),
+        ("employer", "TEXT"),
+        ("country", "TEXT"),
+        ("city", "TEXT"),
+        ("pakistan_connection_evidence_json", "TEXT DEFAULT '[]'"),
+        ("personal_phone", "TEXT"),
+        ("phone_type", "TEXT DEFAULT 'unknown'"),
+        ("phone_match_confidence", "INTEGER DEFAULT 0"),
+        ("professional_phone", "TEXT"),
+        ("personal_email", "TEXT"),
+        ("professional_email", "TEXT"),
+        ("email_verified", "INTEGER DEFAULT 0"),
+        ("email_match_confidence", "INTEGER DEFAULT 0"),
+        ("linkedin_url", "TEXT"),
+        ("linkedin_source_url", "TEXT"),
+        ("linkedin_identity_match", "TEXT DEFAULT 'unknown'"),
+        ("linkedin_match_confidence", "INTEGER DEFAULT 0"),
+        ("evidence_urls_json", "TEXT DEFAULT '[]'"),
+        ("source_names_json", "TEXT DEFAULT '[]'"),
+        ("review_status", "TEXT DEFAULT 'needs_review'"),
+        ("opt_out", "INTEGER DEFAULT 0"),
     ]
     for col_name, col_type in new_cols:
         if col_name not in existing_cols:
@@ -149,7 +179,7 @@ def init_db():
 
 
 def insert_lead_dict(d: dict) -> str:
-    """Insert or update lead record in database."""
+    """Insert or update lead record in database, persisting all Section 9 schema fields."""
     conn = get_db_connection()
     c = conn.cursor()
 
@@ -157,8 +187,23 @@ def insert_lead_dict(d: dict) -> str:
     now = datetime.now(timezone.utc).isoformat()
 
     evidence_json = json.dumps(d.get("evidence_list", []))
+    pak_ev_json = json.dumps(d.get("pakistan_connection_evidence", []))
+    ev_urls_json = json.dumps(d.get("evidence_urls", []))
+    src_names_json = json.dumps(d.get("source_names", []))
     sources_json = json.dumps(d.get("source_urls", []))
     types_json = json.dumps(d.get("source_types", []))
+
+    # Harmonize fields
+    full_name = d.get("full_name") or ""
+    country = d.get("country") or d.get("current_country") or ""
+    city = d.get("city") or d.get("current_city") or ""
+    occupation = d.get("occupation") or d.get("job_title") or d.get("profession") or ""
+    employer = d.get("employer") or d.get("company") or ""
+    pers_phone = d.get("personal_phone") or None
+    prof_phone = d.get("professional_phone") or d.get("public_phone") or None
+    pers_email = d.get("personal_email") or None
+    prof_email = d.get("professional_email") or None
+    li_url = d.get("linkedin_url") or (d.get("professional_profile_url") if "linkedin.com/in/" in (d.get("professional_profile_url") or "") else None)
 
     c.execute("""
     INSERT INTO leads (
@@ -171,7 +216,12 @@ def insert_lead_dict(d: dict) -> str:
         real_estate_intent_score, total_lead_score, score_category, confidence,
         evidence_summary, evidence_list_json, source_urls_json, source_types_json,
         collection_date, last_verified, contact_permission_status, do_not_contact,
-        dnc_reason, lead_status, rejection_reason, notes, created_at, updated_at
+        dnc_reason, lead_status, rejection_reason, notes, created_at, updated_at,
+        occupation, employer, country, city, pakistan_connection_evidence_json,
+        personal_phone, phone_type, phone_match_confidence, professional_phone,
+        personal_email, professional_email, email_verified, email_match_confidence,
+        linkedin_url, linkedin_source_url, linkedin_identity_match, linkedin_match_confidence,
+        evidence_urls_json, source_names_json, review_status, opt_out
     ) VALUES (
         ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?,
@@ -182,7 +232,12 @@ def insert_lead_dict(d: dict) -> str:
         ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?
     )
     ON CONFLICT(id) DO UPDATE SET
         full_name=excluded.full_name,
@@ -217,15 +272,36 @@ def insert_lead_dict(d: dict) -> str:
         source_urls_json=excluded.source_urls_json,
         lead_status=excluded.lead_status,
         notes=excluded.notes,
-        updated_at=excluded.updated_at
+        updated_at=excluded.updated_at,
+        occupation=excluded.occupation,
+        employer=excluded.employer,
+        country=excluded.country,
+        city=excluded.city,
+        pakistan_connection_evidence_json=excluded.pakistan_connection_evidence_json,
+        personal_phone=excluded.personal_phone,
+        phone_type=excluded.phone_type,
+        phone_match_confidence=excluded.phone_match_confidence,
+        professional_phone=excluded.professional_phone,
+        personal_email=excluded.personal_email,
+        professional_email=excluded.professional_email,
+        email_verified=excluded.email_verified,
+        email_match_confidence=excluded.email_match_confidence,
+        linkedin_url=excluded.linkedin_url,
+        linkedin_source_url=excluded.linkedin_source_url,
+        linkedin_identity_match=excluded.linkedin_identity_match,
+        linkedin_match_confidence=excluded.linkedin_match_confidence,
+        evidence_urls_json=excluded.evidence_urls_json,
+        source_names_json=excluded.source_names_json,
+        review_status=excluded.review_status,
+        opt_out=excluded.opt_out
     """, (
-        lead_id, d.get("full_name", ""), d.get("first_name", ""), d.get("last_name", ""),
-        d.get("current_country", ""), d.get("current_city", ""), d.get("current_region", ""),
+        lead_id, full_name, d.get("first_name", ""), d.get("last_name", ""),
+        country, city, d.get("current_region", ""),
         d.get("profession", ""), d.get("job_title", ""), d.get("seniority", ""),
-        d.get("company", ""), d.get("company_website", ""), d.get("company_size", ""), d.get("company_revenue_estimate", ""),
-        d.get("professional_profile_url", ""), d.get("public_email", ""), d.get("public_phone", ""),
+        employer, d.get("company_website", ""), d.get("company_size", ""), d.get("company_revenue_estimate", ""),
+        d.get("professional_profile_url", ""), pers_email or d.get("public_email", ""), pers_phone or d.get("public_phone", ""),
         d.get("phone_source_url", ""), d.get("email_source_url", ""), d.get("company_source_url", ""),
-        1 if d.get("has_whatsapp", True) else 0, d.get("whatsapp_number", d.get("public_phone", "")),
+        1 if d.get("has_whatsapp") else 0, d.get("whatsapp_number", ""),
         d.get("wealth_tier", "High Net Worth ($5M - $25M)"), d.get("estimated_net_worth", "$10M+"),
         d.get("investment_capacity", "$1M - $5M Liquid"),
         d.get("email_verification_status", "Unknown"),
@@ -238,9 +314,14 @@ def insert_lead_dict(d: dict) -> str:
         evidence_json, sources_json, types_json,
         d.get("collection_date") or now[:10], d.get("last_verified") or now[:10],
         d.get("contact_permission_status", "Public Source / Review Recommended"),
-        1 if d.get("do_not_contact") else 0, d.get("dnc_reason", ""),
+        1 if d.get("do_not_contact") or d.get("opt_out") else 0, d.get("dnc_reason", ""),
         d.get("lead_status", "New"), d.get("rejection_reason", ""),
-        d.get("notes", ""), now, now
+        d.get("notes", ""), now, now,
+        occupation, employer, country, city, pak_ev_json,
+        pers_phone, d.get("phone_type", "unknown"), d.get("phone_match_confidence", 0), prof_phone,
+        pers_email, prof_email, 1 if d.get("email_verified") else 0, d.get("email_match_confidence", 0),
+        li_url, d.get("linkedin_source_url", ""), d.get("linkedin_identity_match", "unknown"), d.get("linkedin_match_confidence", 0),
+        ev_urls_json, src_names_json, d.get("review_status", "needs_review"), 1 if d.get("opt_out") else 0
     ))
 
     conn.commit()
@@ -251,11 +332,73 @@ def insert_lead_dict(d: dict) -> str:
 def row_to_lead_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
     d["evidence_list"] = json.loads(d.get("evidence_list_json") or "[]")
+    d["pakistan_connection_evidence"] = json.loads(d.get("pakistan_connection_evidence_json") or "[]")
+    d["evidence_urls"] = json.loads(d.get("evidence_urls_json") or "[]")
+    d["source_names"] = json.loads(d.get("source_names_json") or "[]")
     d["source_urls"] = json.loads(d.get("source_urls_json") or "[]")
     d["source_types"] = json.loads(d.get("source_types_json") or "[]")
     d["do_not_contact"] = bool(d.get("do_not_contact"))
-    d["has_whatsapp"] = bool(d.get("has_whatsapp", 1))
+    d["opt_out"] = bool(d.get("opt_out"))
+    d["has_whatsapp"] = bool(d.get("has_whatsapp", 0))
+    d["email_verified"] = bool(d.get("email_verified", 0))
+
+    # Harmonize Section 9 required fields
+    if not d.get("country") and d.get("current_country"):
+        d["country"] = d["current_country"]
+    if not d.get("city") and d.get("current_city"):
+        d["city"] = d["current_city"]
+    if not d.get("occupation") and (d.get("job_title") or d.get("profession")):
+        d["occupation"] = d.get("job_title") or d.get("profession")
+    if not d.get("employer") and d.get("company"):
+        d["employer"] = d["company"]
+    if not d.get("linkedin_url") and d.get("professional_profile_url"):
+        if "linkedin.com/in/" in d.get("professional_profile_url", ""):
+            d["linkedin_url"] = d["professional_profile_url"]
     return d
+
+
+def set_lead_opt_out(lead_id: str, reason: str = "User opt-out requested") -> bool:
+    """Sets a lead's opt_out flag to 1, sets do_not_contact to 1, sets review_status to 'opt_out',
+    and registers their phone and email in the suppression_list table."""
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT full_name, personal_email, professional_email, public_email,
+               personal_phone, professional_phone, public_phone 
+        FROM leads WHERE id = ?
+    """, (lead_id,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return False
+
+    now = datetime.now(timezone.utc).isoformat()
+    c.execute("""
+        UPDATE leads 
+        SET opt_out = 1, do_not_contact = 1, dnc_reason = ?, review_status = 'opt_out', updated_at = ?
+        WHERE id = ?
+    """, (reason, now, lead_id))
+
+    # Suppress identifiers
+    for em in filter(None, [row["personal_email"], row["professional_email"], row["public_email"]]):
+        try:
+            c.execute("INSERT OR IGNORE INTO suppression_list (type, value, reason, added_at) VALUES (?, ?, ?, ?)",
+                      ("email", em.lower().strip(), reason, now))
+        except Exception:
+            pass
+
+    for ph in filter(None, [row["personal_phone"], row["professional_phone"], row["public_phone"]]):
+        digits = re.sub(r"\D", "", ph)
+        if len(digits) >= 7:
+            try:
+                c.execute("INSERT OR IGNORE INTO suppression_list (type, value, reason, added_at) VALUES (?, ?, ?, ?)",
+                          ("phone", digits, reason, now))
+            except Exception:
+                pass
+
+    conn.commit()
+    conn.close()
+    return True
 
 
 def get_lead_by_id(lead_id: str) -> Optional[dict]:
@@ -523,8 +666,59 @@ def get_crm_funnel_stats() -> dict:
         "new_leads": new_count,
         "qualification_rate": round((qualified_leads / total_candidates * 100), 1) if total_candidates > 0 else 0,
         "status_counts": status_counts,
+        "stages": status_counts,
         "category_counts": category_counts,
         "top_countries": top_countries
+    }
+
+
+def get_existing_crm_lead_signatures() -> Dict[str, set]:
+    """Retrieve indexed sets of existing CRM lead names, emails, phones, and LinkedIn identifiers
+    so the discovery engine can prevent extracting or duplicating anyone already saved in the database.
+    """
+    import re
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT full_name, public_email, public_phone, professional_profile_url 
+        FROM leads
+    """)
+    rows = c.fetchall()
+    conn.close()
+
+    names = set()
+    emails = set()
+    phones = set()
+    linkedin_slugs = set()
+
+    for r in rows:
+        name = (r["full_name"] or "").strip().lower()
+        if name:
+            names.add(name)
+        
+        email = (r["public_email"] or "").strip().lower()
+        if email:
+            emails.add(email)
+            
+        raw_phone = (r["public_phone"] or "").strip()
+        digits = re.sub(r"\D", "", raw_phone)
+        if len(digits) >= 7:
+            phones.add(digits)
+            if digits.startswith("44") or digits.startswith("92") or digits.startswith("1"):
+                # also add without country code or with 0
+                phones.add(digits[-10:])
+                
+        li_url = (r["professional_profile_url"] or "").strip().lower()
+        if "linkedin.com/in/" in li_url:
+            slug = li_url.split("linkedin.com/in/")[-1].split("/")[0].split("?")[0]
+            if slug:
+                linkedin_slugs.add(slug)
+
+    return {
+        "names": names,
+        "emails": emails,
+        "phones": phones,
+        "linkedin_slugs": linkedin_slugs,
     }
 
 
